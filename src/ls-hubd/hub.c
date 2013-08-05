@@ -29,6 +29,7 @@
 #include <sys/stat.h>
 #include <libgen.h>
 #include <glib.h>
+#include <systemd/sd-daemon.h>
 
 #include "hub.h"
 #include "conf.h"
@@ -4227,6 +4228,11 @@ int main(int argc, char *argv[])
         {
             LOG_LS_ERROR(MSGID_LSHUB_UPSTART_ERROR, 0, "Unable to emit upstart event");
         }
+    }
+
+    if (getenv("NOTIFY_SOCKET") != NULL)
+    {
+        sd_notify(0, "READY=1");
     }
 #endif
 
