@@ -31,6 +31,6 @@ add_definitions(-DUNIT_TESTS)
 
 foreach (TEST ${UNIT_TEST_SOURCES})
     add_executable(${TEST} ${TEST}.c ../hub.c ../security.c)
-    target_link_libraries(${TEST} ls-hublib ${CMAKE_PROJECT_NAME} ${TESTLIBNAME} ${PMLOGLIB_LDFLAGS})
+    target_link_libraries(${TEST} ls-hublib ${CMAKE_PROJECT_NAME} ${TESTLIBNAME} ${PMLOGLIB_LDFLAGS} ${SYSTEMD_DAEMON_LDFLAGS})
     add_test(${TEST} ${TEST})
 endforeach ()
