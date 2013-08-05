@@ -48,6 +48,10 @@ pkg_check_modules(PMLOGLIB REQUIRED PmLogLib)
 include_directories(${PMLOGLIB_INCLUDE_DIRS})
 webos_add_compiler_flags(ALL ${PMLOGLIB_CFLAGS_OTHER})
 
+pkg_check_modules(SYSTEMD_DAEMON REQUIRED libsystemd-daemon)
+include_directories(${SYSTEMD_DAEMON_INCLUDE_DIRS})
+webos_add_compiler_flags(ALL ${SYSTEMD_DAEMON_CFLAGS_OTHER})
+
 webos_machine_impl_dep()
 include(webOS/LegacyDefines)
 
