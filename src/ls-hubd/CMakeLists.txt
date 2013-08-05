@@ -36,7 +36,7 @@ add_definitions(-DDEFAULT_LOCAL_SOCKET_DIR="${WEBOS_INSTALL_RUNTIMEINFODIR}/ls2"
 add_library(ls-hublib STATIC ${HUB_SOURCE_FILES})
 
 add_executable(ls-hubd hub.c)
-target_link_libraries(ls-hubd ls-hublib ${CMAKE_PROJECT_NAME} ${PMLOGLIB_LDFLAGS})
+target_link_libraries(ls-hubd ls-hublib ${CMAKE_PROJECT_NAME} ${PMLOGLIB_LDFLAGS} ${SYSTEMD_DAEMON_LDFLAGS})
 webos_build_daemon(NAME ls-hubd LAUNCH ${CMAKE_SOURCE_DIR}/files/launch/ ${LS2_RESTRICTED})
 
 add_subdirectory(test)
