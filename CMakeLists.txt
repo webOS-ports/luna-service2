@@ -58,7 +58,7 @@ include(webOS/LegacyDefines)
 set(LS2_PERMS "")
 set(LS2_RESTRICTED "")
 
-if(WEBOS_TARGET_MACHINE_IMPL STREQUAL hardware)
+if (${WEBOS_LS2_SECURE})
 	# Only root (owner) will be permitted access to certain binaries on device
 	set(LS2_PERMS PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE)
 
