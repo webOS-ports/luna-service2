@@ -584,4 +584,18 @@ _LSMessageGetKindHelper(const char *category, const char *method)
     return key;
 }
 
+pid_t LSMessageGetSenderPid(LSMessage *message)
+{
+    _LSTransportCred *cred;
+
+    if (!message || !message->transport_msg)
+        return -1;
+
+    cred = _LSTransportClientGetCred(message->transport_msg);
+    if (!cred)
+        return -1;
+
+    return _LSTransportCredGetPid(cred);
+}
+
 /* @} END OF LunaServiceMessage */
