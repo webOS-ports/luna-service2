@@ -2252,7 +2252,8 @@ static char *media_service_names[] = {
     "com.palm.media",
     "com.palm.umediapipeline",
     "com.palm.umediaserver",
-    "com.palm.umediapipelinectrl"
+    "com.palm.umediapipelinectrl",
+    "org.webosports.media"
 };
 
 /**
