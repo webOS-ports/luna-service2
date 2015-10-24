@@ -134,7 +134,7 @@ void _ConfigFreeSettings(void);
  * Directories=/path/to/some/dir;/another/path/to/some/dir
  * SysMgrExePath=/path/to/LunaSysMgr
  * WebAppMgrExePath=/path/to/WebAppMgr
- * WebAppMgr2ExePath=/path/to/QtWebProcess // used by WAM2
+ * WebAppMgr2ExePath=/path/to/QtWebEngineProcess // used by WAM2
  * JsServiceExePath=js
  * MojoAppExePath=mojo-app
  * MojoAppsAllowAllOutboundByDefault=bool
@@ -320,7 +320,7 @@ char *g_conf_monitor_pub_exe_path = NULL;       /**< path to ls-monitor-pub */
 char *g_conf_sysmgr_exe_path = NULL;            /**< path to LunaSysMgr */
 char *g_conf_webappmgr_exe_path = NULL;         /**< path to WebAppMgr (with the separation of LunaSysMgr and WebAppMgr into two separate components,
                                                      there is now a second executable that must be granted special permissions) */
-char *g_conf_webappmgr2_exe_path = NULL;         /**< path to WebAppMgr2, which is its QtWebProcess instance */
+char *g_conf_webappmgr2_exe_path = NULL;         /**< path to WebAppMgr2, which is its QtWebEngineProcess instance */
 char *g_conf_triton_service_exe_path = NULL;    /**< special "exePath" value for JS services */
 char *g_conf_mojo_app_exe_path = NULL;          /**< special "exePath" value for mojo apps */
 bool g_conf_mojo_apps_allow_all_outbound_by_default = false; /**< whether to allow mojo apps "*" outbound permissions by default */
