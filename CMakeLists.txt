@@ -1,6 +1,6 @@
 # @@@LICENSE
 #
-#      Copyright (c) 2008-2012 Hewlett-Packard Development Company, L.P.
+#      Copyright (c) 2008-2014 LG Electronics, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,30 +17,30 @@
 # LICENSE@@@
 
 cmake_minimum_required(VERSION 2.8.7)
-project(luna-service2 C)
+project(luna-service2)
 
 include(webOS/webOS)
 
-webos_modules_init(1 0 0 QUALIFIER RC4)
-webos_component(3 2 0)
+webos_modules_init(1 0 0 QUALIFIER RC7)
+webos_component(3 9 5)
 
 include(FindPkgConfig)
+
+include_directories(src/libluna-service2)
+include_directories(include/public)
+include_directories(include/private)
 
 pkg_check_modules(GLIB2 REQUIRED glib-2.0)
 include_directories(${GLIB2_INCLUDE_DIRS})
 webos_add_compiler_flags(ALL ${GLIB2_CFLAGS_OTHER})
 
-pkg_check_modules(GTHREAD2 REQUIRED gthread-2.0)
-include_directories(${GTHREAD2_INCLUDE_DIRS})
-webos_add_compiler_flags(ALL ${GTHREAD2_CFLAGS_OTHER})
-
-# check if we have cjson
-pkg_check_modules(CJSON REQUIRED cjson)
-include_directories(${CJSON_INCLUDE_DIRS})
-webos_add_compiler_flags(ALL ${CJSON_CFLAGS_OTHER})
+# check for pbnjson c library
+pkg_check_modules(PBNJSON_C REQUIRED pbnjson_c>=2.5.0)
+include_directories(${PBNJSON_C_INCLUDE_DIRS})
+webos_add_compiler_flags(ALL ${PBNJSON_C_CFLAGS_OTHER})
 
 # check if we have PmLogLib
-pkg_check_modules(PMLOGLIB REQUIRED PmLogLib)
+pkg_check_modules(PMLOGLIB REQUIRED PmLogLib>=3.0.2)
 include_directories(${PMLOGLIB_INCLUDE_DIRS})
 webos_add_compiler_flags(ALL ${PMLOGLIB_CFLAGS_OTHER})
 
@@ -52,15 +52,17 @@ set(LS2_RESTRICTED "")
 
 if(WEBOS_TARGET_MACHINE_IMPL STREQUAL hardware)
 	# Only root (owner) will be permitted access to certain binaries on device
-	set(LS2_PERMS "PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE")
+	set(LS2_PERMS PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE)
 
 	# XXX Convert this to VERY_RESTRICTED_PERMISSIONS
 	# once it is implemented.
 	set(LS2_RESTRICTED RESTRICTED_PERMISSIONS)
 endif()
 
-include_directories(src/libluna-service2)
-include_directories(include/public)
+# Enable asserts in development release builds
+if(NOT ${WEBOS_DISTRO_PRERELEASE} STREQUAL "")
+	webos_add_compiler_flags(RELEASE -UNDEBUG -DWEBOS_DISTRO_PRERELEASE_ASSERTS)
+endif()
 
 # TODO: Is there a better way than setting all the flags (i.e., built in support)?
 if(USE_GCOV)
@@ -69,10 +71,34 @@ if(USE_GCOV)
 	webos_add_linker_options(ALL -lgcov -fprofile-arcs)
 endif()
 
+webos_add_compiler_flags(ALL -Wall)
+
+set(WEBOS_USE_WERROR FALSE CACHE BOOL "Set to TRUE to enable -Werror")
+if(WEBOS_USE_WERROR)
+	message("Build with treating most warnings as errors")
+	webos_add_compiler_flags(ALL
+	                        -Werror -Wextra
+	                        -Wno-error=missing-field-initializers
+	                        -Wno-error=unused-parameter
+	                        -Wno-error=sign-compare
+	                        -Wno-error=type-limits
+	                        )
+endif()
+
+# Enable security by default
+IF(NOT DEFINED WEBOS_LS2_SECURE)
+	SET(WEBOS_LS2_SECURE True)
+ENDIF(NOT DEFINED WEBOS_LS2_SECURE)
+
+set(WEBOS_CONFIG_BUILD_TESTS FALSE CACHE BOOL "Set to TRUE to enable tests compilation")
+if (WEBOS_CONFIG_BUILD_TESTS)
+	set(MEMORYCHECK_COMMAND_OPTIONS "--tool=memcheck --leak-check=full --trace-children=yes")
+	set(MEMORYCHECK_SUPPRESSIONS_FILE "${CMAKE_SOURCE_DIR}/valgrind.supp")
+	include(CTest)
+endif()
 
 # Debug definitions
 webos_add_compiler_flags(ALL -DMEMCHECK -DLSHANDLE_CHECK)
-
 
 # Specifying this causes "inline function '<function>' declared but never defined" errors.
 # webos_add_compiler_flags(ALL -std=c99)
@@ -92,6 +118,7 @@ webos_add_linker_options(ALL --no-undefined)
 #webos_add_linker_options(ALL --no-allow-shlib-undefined)
 
 add_subdirectory(src/libluna-service2)
+add_subdirectory(src/libluna-service2++)
 add_subdirectory(src/ls-hubd)
 add_subdirectory(src/ls-monitor)
 add_subdirectory(src/luna-send)
@@ -102,9 +129,14 @@ webos_build_pkgconfig()
 webos_config_build_doxygen(doc Doxyfile)
 webos_build_system_bus_files()
 
+install(DIRECTORY files/schema/
+	DESTINATION ${WEBOS_INSTALL_WEBOS_SYSCONFDIR}/schemas/luna-service2
+	PATTERN "*.schema"
+	)
+
 # install the script file
 webos_configure_source_files(LS-CONTROL files/scripts/public/ls-control)
-install(PROGRAMS ${LS-CONTROL} DESTINATION ${WEBOS_INSTALL_BINDIR} ${LS2_PERMS})
+install(PROGRAMS ${LS-CONTROL} DESTINATION ${WEBOS_INSTALL_SBINDIR} ${LS2_PERMS})
 
 # Create the permanent service directories. The ones for downloaded services (called
 # "dynamic" but not to be confused with services that are started on-demand, which
@@ -116,3 +148,4 @@ install(PROGRAMS ${LS-CONTROL} DESTINATION ${WEBOS_INSTALL_BINDIR} ${LS2_PERMS})
 install(DIRECTORY DESTINATION ${WEBOS_INSTALL_SYSBUS_PRVSERVICESDIR})
 install(DIRECTORY DESTINATION ${WEBOS_INSTALL_SYSBUS_PUBSERVICESDIR})
 
+add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure -E 'integration|test_clock|test_timersource')

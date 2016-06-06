@@ -1,6 +1,6 @@
 /* @@@LICENSE
 *
-*      Copyright (c) 2008-2012 Hewlett-Packard Development Company, L.P.
+*      Copyright (c) 2008-2013 LG Electronics, Inc.
 *
 * Licensed under the Apache License, Version 2.0 (the "License");
 * you may not use this file except in compliance with the License.
@@ -28,6 +28,9 @@
 
 bool ConfigParseFile(const char *path, LSError *lserror);
 bool ConfigSetupInotify(const char* conf_file, LSError *lserror);
+bool ConfigKeyProcessDynamicServiceDirs(const char **dirs, void *ctxt, LSError *lserror);
+void ConfigSetDefaults(void);
+void ConfigCleanup();
 
 extern int g_conf_watchdog_timeout_sec;
 extern LSHubWatchdogFailureMode g_conf_watchdog_failure_mode;
@@ -37,12 +40,17 @@ extern bool g_conf_security_enabled;
 extern bool g_conf_log_service_status;
 extern int g_conf_connect_timeout_ms;
 extern char* g_conf_monitor_exe_path;
+extern char* g_conf_monitor_pub_exe_path;
 extern char* g_conf_sysmgr_exe_path;
+extern char* g_conf_webappmgr_exe_path;
+extern char* g_conf_webappmgr2_exe_path;
 extern char* g_conf_triton_service_exe_path;
 extern char* g_conf_mojo_app_exe_path;
 extern bool g_conf_mojo_apps_allow_all_outbound_by_default;
 extern bool g_conf_allow_null_outbound_by_default;
 extern char *g_conf_pid_dir;
 extern char *g_conf_local_socket_path;
+
+enum ScanDirectoriesContext {STEADY_DIRS = 0, VOLATILE_DIRS};
 
 #endif

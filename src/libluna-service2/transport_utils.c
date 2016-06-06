@@ -1,6 +1,6 @@
 /* @@@LICENSE
 *
-*      Copyright (c) 2008-2012 Hewlett-Packard Development Company, L.P.
+*      Copyright (c) 2008-2014 LG Electronics, Inc.
 *
 * Licensed under the Apache License, Version 2.0 (the "License");
 * you may not use this file except in compliance with the License.
@@ -23,25 +23,12 @@
 #include "transport_utils.h"
 #include "base.h"
 
+/* Hub socket's data */
+static char *hub_socket_dir = NULL;
+static char *public_hub_addr = NULL;
+static char *private_hub_addr = NULL;
+
 int _ls_debug_tracing = 0;
-
-#ifdef COMPILE_VERBOSE_MESSAGES
-void
-_ls_verbose(const char *format, ...)
-{
-    va_list vargs;
-
-    if (DEBUG_VERBOSE)/*(DEBUG_VERBOSE)*/
-    {
-        fprintf(stderr, "%lx: ", pthread_self());
-        va_start(vargs, format);
-        vfprintf(stderr, format, vargs);
-        va_end(vargs);
-
-        fflush(stderr);
-    } 
-}
-#endif
 
 int
 strlen_safe(const char *str)
@@ -71,13 +58,13 @@ DumpHashTable(GHashTable *table)
     printf("\n");
 }
 
-/** 
+/**
  *******************************************************************************
  * @brief Set a callback for the specified signal.
- * 
+ *
  * @param  signal           IN  signal number (e.g., SIGINT)
- * @param  handler          IN  callback 
- * 
+ * @param  handler          IN  callback
+ *
  * @retval true on success
  * @retval false on failure
  *******************************************************************************
@@ -113,23 +100,23 @@ _LSTransportSetupSignalHandler(int signal, void (*handler)(int))
     return true;
 }
 
-/** 
+/**
  *******************************************************************************
  * @brief Set the fd to blocking or non-blocking mode and return previous
  * state.
- * 
+ *
  * @param  fd                       IN  fd
  * @param  block                    IN  true means set to blocking, false
  *                                      non-blocking
  * @param  prev_state_blocking      OUT previous state of fd (true means
- *                                      blocking) 
+ *                                      blocking)
  *******************************************************************************
  */
 void
 _LSTransportFdSetBlockingState(int fd, bool block, bool *prev_state_blocking)
 {
     LS_ASSERT(fd >= 0);
-    
+
     bool old_block_state;
     int ret;
 
@@ -170,11 +157,11 @@ _LSTransportFdSetBlockingState(int fd, bool block, bool *prev_state_blocking)
     }
 }
 
-/** 
+/**
  *******************************************************************************
  * @brief Set the fd to blocking mode.
- * 
- * @param  fd                   IN  fd 
+ *
+ * @param  fd                   IN  fd
  * @param  prev_state_blocking  OUT previous state of the fd (true means
  *                                  blocking)
  *******************************************************************************
@@ -186,11 +173,11 @@ _LSTransportFdSetBlock(int fd, bool *prev_state_blocking)
     _LSTransportFdSetBlockingState(fd, true, prev_state_blocking);
 }
 
-/** 
+/**
  *******************************************************************************
  * @brief Set the fd to non-blocking mode.
- * 
- * @param  fd                   IN  fd 
+ *
+ * @param  fd                   IN  fd
  * @param  prev_state_blocking  OUT previous state of the fd (true means
  *                                  blocking)
  *******************************************************************************
@@ -200,4 +187,55 @@ _LSTransportFdSetNonBlock(int fd, bool *prev_state_blocking)
 {
     LS_ASSERT(fd >= 0);
     _LSTransportFdSetBlockingState(fd, false, prev_state_blocking);
+}
+
+static void init_socket_addresses()
+{
+    /*
+     * LS_HUB_LOCAL_SOCKET_DIRECTORY - environmental variable, which points to custom
+     * hubs' sockets directory, otherwise we try to find it in default, /tmp directory.
+     */
+    if (!(hub_socket_dir = getenv("LS_HUB_LOCAL_SOCKET_DIRECTORY")))
+    {
+        hub_socket_dir = HUB_LOCAL_SOCKET_DIRECTORY;
+    }
+
+    public_hub_addr = g_strconcat(hub_socket_dir, "/", HUB_LOCAL_ADDRESS_PUBLIC_NAME, NULL);
+    private_hub_addr = g_strconcat(hub_socket_dir, "/", HUB_LOCAL_ADDRESS_PRIVATE_NAME, NULL);
+}
+
+static pthread_once_t socket_address_initialized = PTHREAD_ONCE_INIT;
+
+/**
+ *******************************************************************************
+ * @brief Get hub's socket address.
+ *
+ * @param  is_public_bus     IN   if we are trying to connect to the public bus
+ * (private otherwise)
+ *
+ * @retval socket address
+ *******************************************************************************
+ */
+const char *_LSGetHubLocalSocketAddress(bool is_public_bus)
+{
+    (void) pthread_once(&socket_address_initialized, init_socket_addresses);
+
+    return is_public_bus ? public_hub_addr : private_hub_addr;
+}
+
+/**
+ *******************************************************************************
+ * @brief Get hub's socket directory.
+ *
+ * @param  is_public_bus     IN   if we are trying to connect to the public bus
+ * (private otherwise)
+ *
+ * @retval local socket directory
+ *******************************************************************************
+ */
+const char *_LSGetHubLocalSocketDirectory(bool is_public_bus)
+{
+    (void) pthread_once(&socket_address_initialized, init_socket_addresses);
+
+    return hub_socket_dir;
 }

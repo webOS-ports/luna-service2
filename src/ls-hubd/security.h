@@ -1,6 +1,6 @@
 /* @@@LICENSE
 *
-*      Copyright (c) 2008-2012 Hewlett-Packard Development Company, L.P.
+*      Copyright (c) 2008-2013 LG Electronics, Inc.
 *
 * Licensed under the Apache License, Version 2.0 (the "License");
 * you may not use this file except in compliance with the License.
@@ -42,5 +42,21 @@ bool LSHubPushRole(const _LSTransportClient *client, const char *path, LSError *
 bool LSHubActiveRoleMapClientRemove(const _LSTransportClient *client, LSError *lserror);
 gchar * LSHubRoleAllowedNamesForExe(const char * exe_path);
 bool LSHubClientGetPrivileged(const _LSTransportClient *client);
+const char* IsMediaService(const char *service_name);
+LSHubRole* LSHubRoleMapLookup(const char *exe_path);
+bool PermissionsAndRolesInit(LSError *lserror, bool from_volatile_dir);
+LSHubPermission* LSHubPermissionMapLookup(const char *service_name);
+void RolesCleanup();
+
+
+#ifdef UNIT_TESTS
+#include <pbnjson.h>
+LSHubPermission* LSHubPermissionNew(raw_buffer service_name);
+void LSHubPermissionFree(LSHubPermission *perm);
+bool LSHubPermissionIsEqual(const LSHubPermission *a, const LSHubPermission *b);
+bool LSHubPermissionAddAllowedInbound(LSHubPermission *perm, const char *name, LSError *lserror);
+bool LSHubPermissionAddAllowedOutbound(LSHubPermission *perm, const char *name, LSError *lserror);
+gchar* LSHubPermissionDump(const LSHubPermission *perm);
+#endif //UNIT_TESTS
 
 #endif  /* _SECURITY_H */

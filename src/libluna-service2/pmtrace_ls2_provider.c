@@ -1,6 +1,6 @@
 /* @@@LICENSE
 *
-*      Copyright (c) 2008-2012 Hewlett-Packard Development Company, L.P.
+*      Copyright (c) 2013 LG Electronics, Inc.
 *
 * Licensed under the Apache License, Version 2.0 (the "License");
 * you may not use this file except in compliance with the License.
@@ -16,19 +16,12 @@
 *
 * LICENSE@@@ */
 
-#ifndef _LOG_H
-#define _LOG_H
+/*
+* These #defines alter the behavior of pmtrace_ls2_provider.h to define the tracing
+* primitives rather than just declaring them.
+*/
 
-#ifdef HAVE_CONFIG_H
-#include <config.h>
-#endif
+#define TRACEPOINT_CREATE_PROBES
+#define TRACEPOINT_DEFINE
 
-#include <stdbool.h>
-
-#define HUB_PUBLIC_LOG_CONTEXT          "ls-hubd.public"
-#define HUB_PRIVATE_LOG_CONTEXT         "ls-hubd.private"
-
-void SetLoggingSyslog(void);
-void SetLoggingPmLogLib(bool public_hub);
-
-#endif  /* _LOG_H */
+#include "pmtrace_ls2_provider.h"

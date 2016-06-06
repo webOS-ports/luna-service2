@@ -1,6 +1,6 @@
 /* @@@LICENSE
 *
-*      Copyright (c) 2010-2012 Hewlett-Packard Development Company, L.P.
+*      Copyright (c) 2010-2013 LG Electronics, Inc.
 *
 * Licensed under the Apache License, Version 2.0 (the "License");
 * you may not use this file except in compliance with the License.
@@ -46,5 +46,10 @@ uid_t _LSTransportCredGetUid(const _LSTransportCred *cred);
 gid_t _LSTransportCredGetGid(const _LSTransportCred *cred);
 const char* _LSTransportCredGetExePath(const _LSTransportCred *cred);
 const char* _LSTransportCredGetCmdLine(const _LSTransportCred *cred);
+
+#ifdef UNIT_TESTS
+void _LSTransportCredSetExePath(_LSTransportCred *cred, char const *exe_path);
+void _LSTransportCredSetPid(_LSTransportCred *cred, pid_t pid);
+#endif //UNIT_TESTS
 
 #endif  /* _TRANSPORT_SECURITY_H_ */

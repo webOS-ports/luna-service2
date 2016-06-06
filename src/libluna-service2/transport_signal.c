@@ -1,6 +1,6 @@
 /* @@@LICENSE
 *
-*      Copyright (c) 2008-2012 Hewlett-Packard Development Company, L.P.
+*      Copyright (c) 2008-2014 LG Electronics, Inc.
 *
 * Licensed under the Apache License, Version 2.0 (the "License");
 * you may not use this file except in compliance with the License.
@@ -19,7 +19,7 @@
 
 #include <errno.h>
 #include <string.h>
-#include <cjson/json.h>
+#include <pbnjson.h>
 #include "transport_utils.h"
 #include "transport_priv.h"
 #include "transport_signal.h"
@@ -35,17 +35,17 @@
  * @{
  */
 
-/** 
+/**
  *******************************************************************************
  * @brief Send a signal registration message.
- * 
- * @param  transport    IN  transport 
- * @param  reg          IN  true to register, false to unregister 
- * @param  category     IN  category (required) 
- * @param  method       IN  method (optional, NULL means none) 
- * @param  token        OUT message token 
- * @param  lserror      OUT set on error 
- * 
+ *
+ * @param  transport    IN  transport
+ * @param  reg          IN  true to register, false to unregister
+ * @param  category     IN  category (required)
+ * @param  method       IN  method (optional, NULL means none)
+ * @param  token        OUT message token
+ * @param  lserror      OUT set on error
+ *
  * @retval  true on success
  * @retval  false on failure
  *******************************************************************************
@@ -54,7 +54,7 @@ bool
 _LSTransportSignalRegistration(_LSTransport *transport, bool reg, const char *category,
                                const char *method, LSMessageToken *token, LSError *lserror)
 {
-    /* 
+    /*
      * format:
      *
      * category + NUL
@@ -63,16 +63,10 @@ _LSTransportSignalRegistration(_LSTransport *transport, bool reg, const char *ca
     bool ret = true;
     int category_len = strlen_safe(category) + 1;
     int method_len = strlen_safe(method) + 1;
-    
-    _ls_verbose("%s: category: %s, method: %s\n", __func__, category, method);
+
+    LOG_LS_TRACE("%s: category: %s, method: %s\n", __func__, category, method);
 
     _LSTransportMessage *message = _LSTransportMessageNewRef(category_len + method_len);
-
-    if (!message)
-    {
-        _LSErrorSet(lserror, -ENOMEM, "OOM");
-        return false;
-    }
 
     if (reg)
     {
@@ -86,10 +80,10 @@ _LSTransportSignalRegistration(_LSTransport *transport, bool reg, const char *ca
     char *message_body = _LSTransportMessageGetBody(message);
 
     LS_ASSERT(message_body != NULL);
-         
+
     memcpy(message_body, category, category_len);
     message_body += category_len;
-    
+
     if (method_len == 1)
     {
         char nul = '\0';
@@ -112,17 +106,17 @@ _LSTransportSignalRegistration(_LSTransport *transport, bool reg, const char *ca
     return ret;
 }
 
-/** 
+/**
  *******************************************************************************
  * @brief Register a signal. It should only be called from users of the
  * transport (i.e., not from within this file).
- * 
- * @param  transport    IN  transport 
- * @param  category     IN  category 
- * @param  method       IN  method (optional, NULL means none) 
- * @param  token        OUT message token 
- * @param  lserror      OUT set on error 
- * 
+ *
+ * @param  transport    IN  transport
+ * @param  category     IN  category
+ * @param  method       IN  method (optional, NULL means none)
+ * @param  token        OUT message token
+ * @param  lserror      OUT set on error
+ *
  * @retval  true on success
  * @retval  false on failure
  *******************************************************************************
@@ -134,17 +128,17 @@ LSTransportRegisterSignal(_LSTransport *transport, const char *category, const c
     return _LSTransportSignalRegistration(transport, true, category, method, token, lserror);
 }
 
-/** 
+/**
  *******************************************************************************
  * @brief Unregister a signal. It should only be called from users of the
  * transport (i.e., not from within this file).
- * 
- * @param  transport    IN  transport 
- * @param  category     IN  category 
- * @param  method       IN  method (optional, NULL means none) 
- * @param  token        OUT message token 
- * @param  lserror      OUT set on error 
- * 
+ *
+ * @param  transport    IN  transport
+ * @param  category     IN  category
+ * @param  method       IN  method (optional, NULL means none)
+ * @param  token        OUT message token
+ * @param  lserror      OUT set on error
+ *
  * @retval  true on success
  * @retval  false on failure
  *******************************************************************************
@@ -156,15 +150,15 @@ LSTransportUnregisterSignal(_LSTransport *transport, const char *category, const
     return _LSTransportSignalRegistration(transport, false, category, method, token, lserror);
 }
 
-/** 
+/**
  *******************************************************************************
  * @brief Register for server status signals.
- * 
- * @param  transport        IN  transport 
- * @param  service_name     IN  service name 
- * @param  token            OUT message token 
- * @param  lserror          OUT set on error 
- * 
+ *
+ * @param  transport        IN  transport
+ * @param  service_name     IN  service name
+ * @param  token            OUT message token
+ * @param  lserror          OUT set on error
+ *
  * @retval  true on success
  * @retval  false on failure
  *******************************************************************************
@@ -175,15 +169,15 @@ LSTransportRegisterSignalServiceStatus(_LSTransport *transport, const char *serv
     return _LSTransportSignalRegistration(transport, true, SERVICE_STATUS_CATEGORY, service_name, token, lserror);
 }
 
-/** 
+/**
  *******************************************************************************
  * @brief Unregister for server status signals.
- * 
- * @param  transport        IN  transport 
- * @param  service_name     IN  service name 
- * @param  token            OUT message token 
- * @param  lserror          OUT set on error 
- * 
+ *
+ * @param  transport        IN  transport
+ * @param  service_name     IN  service name
+ * @param  token            OUT message token
+ * @param  lserror          OUT set on error
+ *
  * @retval  true on success
  * @retval  false on failure
  *******************************************************************************
@@ -194,14 +188,14 @@ LSTransportUnregisterSignalServiceStatus(_LSTransport *transport, const char *se
     return _LSTransportSignalRegistration(transport, false, SERVICE_STATUS_CATEGORY, service_name, token, lserror);
 }
 
-/** 
+/**
  *******************************************************************************
  * @brief Create a new signal message with ref count of 1.
- * 
- * @param  category     IN  category 
- * @param  method       IN  method (optional, NULL means none) 
- * @param  payload      IN  payload 
- * 
+ *
+ * @param  category     IN  category
+ * @param  method       IN  method (optional, NULL means none)
+ * @param  payload      IN  payload
+ *
  * @retval  message on success
  * @retval  NULL on failure
  *******************************************************************************
@@ -218,35 +212,32 @@ LSTransportMessageSignalNewRef(const char *category, const char *method, const c
 
     _LSTransportMessage *message = _LSTransportMessageNewRef(category_len + method_len + payload_len);
 
-    if (message)
-    {
-        _LSTransportMessageSetType(message, _LSTransportMessageTypeSignal);
+    _LSTransportMessageSetType(message, _LSTransportMessageTypeSignal);
 
-        char *message_body = _LSTransportMessageGetBody(message);
+    char *message_body = _LSTransportMessageGetBody(message);
 
-        memcpy(message_body, category, category_len);
-        message_body += category_len;
-        memcpy(message_body, method, method_len);
-        message_body += method_len;
-        memcpy(message_body, payload, payload_len);
-    
-        /* TODO: original code also appended the service_name of the sender (or "")
-         * if there was no name (sh->name) */
-    }
+    memcpy(message_body, category, category_len);
+    message_body += category_len;
+    memcpy(message_body, method, method_len);
+    message_body += method_len;
+    memcpy(message_body, payload, payload_len);
+
+    /* TODO: original code also appended the service_name of the sender (or "")
+     * if there was no name (sh->name) */
 
     return message;
 }
 
-/** 
+/**
  *******************************************************************************
  * @brief Send a signal.
- * 
- * @param  transport    IN  transport 
- * @param  category     IN  category 
- * @param  method       IN  method (optional, NULL means none) 
- * @param  payload      IN  payload 
- * @param  lserror      OUT set on error 
- * 
+ *
+ * @param  transport    IN  transport
+ * @param  category     IN  category
+ * @param  method       IN  method (optional, NULL means none)
+ * @param  payload      IN  payload
+ * @param  lserror      OUT set on error
+ *
  * @retval  true on success
  * @retval  false on failure
  *******************************************************************************
@@ -258,12 +249,6 @@ LSTransportSendSignal(_LSTransport *transport, const char *category, const char 
 
     _LSTransportMessage *message = LSTransportMessageSignalNewRef(category, method, payload);
 
-    if (!message)
-    {
-        _LSErrorSet(lserror, -ENOMEM, "OOM");
-        return false;
-    }
-
     LS_ASSERT(transport->hub != NULL);
 
     ret = _LSTransportSendMessage(message, transport->hub, NULL, lserror);
@@ -273,13 +258,13 @@ LSTransportSendSignal(_LSTransport *transport, const char *category, const char 
     return ret;
 }
 
-/** 
+/**
  *******************************************************************************
  * @brief Get the service name from a "ServceStatus" message. The name is
  * allocated and should be freed.
- * 
+ *
  * @param  message  IN  message
- * 
+ *
  * @retval name string on success
  * @retval NULL on error
  *******************************************************************************
@@ -287,44 +272,51 @@ LSTransportSendSignal(_LSTransport *transport, const char *category, const char 
 char*
 LSTransportServiceStatusSignalGetServiceName(_LSTransportMessage *message)
 {
+    JSchemaInfo schemaInfo;
+    jschema_info_init(&schemaInfo, jschema_all(), NULL, NULL);
+
     LS_ASSERT(_LSTransportMessageGetType(message) == _LSTransportMessageTypeServiceDownSignal
               || _LSTransportMessageGetType(message) == _LSTransportMessageTypeServiceUpSignal);
 
     char *service_name = NULL;
-    struct json_object *service_name_obj = NULL;
+    jvalue_ref service_name_obj = NULL;
     const char *payload = _LSTransportMessageGetPayload(message);
 
     if (!payload)
     {
-        g_critical("Unable to get payload from message");
+        LOG_LS_ERROR(MSGID_LS_INVALID_JSON, 0, "Unable to get payload from message");
         return NULL;
     }
 
     /* get the serviceName part of the JSON object */
-    struct json_object *payload_json = json_tokener_parse(payload);
+    jvalue_ref payload_json = jdom_parse(j_cstr_to_buffer(payload),
+                                         DOMOPT_NOOPT, &schemaInfo);
 
-    bool ret = json_object_object_get_ex(payload_json, SERVICE_STATUS_SERVICE_NAME, &service_name_obj);
+    bool ret = jobject_get_exists(payload_json,
+                                  J_CSTR_TO_BUF(SERVICE_STATUS_SERVICE_NAME),
+                                  &service_name_obj);
 
     if (ret)
     {
-        service_name = g_strdup(json_object_get_string(service_name_obj));
+        raw_buffer service_name_buf = jstring_get_fast(service_name_obj);
+        service_name = g_strndup(service_name_buf.m_str, service_name_buf.m_len);
     }
     else
     {
-        g_critical("Unable to get service name string from payload: %s", payload);
+        LOG_LS_ERROR(MSGID_LS_INVALID_JSON, 0, "Unable to get service name string from payload: %s", payload);
     }
 
-    json_object_put(payload_json);
+    j_release(&payload_json);
 
     return service_name;
 }
 
-/** 
+/**
  *******************************************************************************
  * @brief Get the unique name from a "ServiceStatus" message.
- * 
- * @param  message  IN  message 
- * 
+ *
+ * @param  message  IN  message
+ *
  * @retval  name string on success
  * @retval  NULL on failure
  *******************************************************************************
@@ -333,7 +325,7 @@ const char*
 LSTransportServiceStatusSignalGetUniqueName(_LSTransportMessage *message)
 {
     /* TODO: we may want this eventually, it's pretty much the same as GetServiceName */
-    g_critical("Not yet implemented!");
+    LOG_LS_ERROR(MSGID_LS_NOT_IMPLEMENTED, 0, "Not yet implemented!");
     LS_ASSERT(0);
     return NULL;
 }

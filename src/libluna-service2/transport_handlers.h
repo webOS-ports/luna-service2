@@ -1,6 +1,6 @@
 /* @@@LICENSE
 *
-*      Copyright (c) 2008-2012 Hewlett-Packard Development Company, L.P.
+*      Copyright (c) 2008-2013 LG Electronics, Inc.
 *
 * Licensed under the Apache License, Version 2.0 (the "License");
 * you may not use this file except in compliance with the License.
@@ -28,7 +28,7 @@ typedef enum
 {
     LSMessageHandlerResultHandled,          /**< message was handled */
     LSMessageHandlerResultNotHandled,       /**< message was not handled; error will be sent as reply */
-    LSMessageHandlerResultUnknownMethod,    /**< method was not found; error will be sent as reply */ 
+    LSMessageHandlerResultUnknownMethod,    /**< method was not found; error will be sent as reply */
 } LSMessageHandlerResult;
 
 typedef LSMessageHandlerResult (*LSTransportMessageHandler)(_LSTransportMessage *message, void *context);

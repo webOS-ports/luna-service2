@@ -1,6 +1,6 @@
 /* @@@LICENSE
 *
-*      Copyright (c) 2008-2012 Hewlett-Packard Development Company, L.P.
+*      Copyright (c) 2008-2014 LG Electronics, Inc.
 *
 * Licensed under the Apache License, Version 2.0 (the "License");
 * you may not use this file except in compliance with the License.
@@ -29,10 +29,13 @@
 #include <luna-service2/lunaservice.h>
 
 #include "base.h"
+#include "category.h"
 #include "message.h"
 #include "subscription.h"
 #include "debug_methods.h"
 #include "transport.h"
+#include "clock.h"
+#include "log.h"
 
 #define __USE_GNU   /* for dladdr() in dlfcn.h */
 #include <dlfcn.h>
@@ -45,6 +48,8 @@
 #include <sys/types.h>
 #include <arpa/inet.h>
 #endif
+
+#include <pmtrace_ls2.h>
 
 /* FIXME -- create a callmap.h header file (this function is in callmap.c */
 void _LSHandleMessageFailure(LSMessageToken global_token, _LSTransportMessageFailureType failure_type, void *context);
@@ -149,15 +154,15 @@ LSDebugLogIncoming(const char *where, _LSTransportMessage *message)
 
         if (DEBUG_VERBOSE)
         {
-            const char *payload = _LSTransportMessageGetPayload(message); 
+            const char *payload = _LSTransportMessageGetPayload(message);
             if (!payload) payload = "(null)";
 
-            g_debug("RX: %s token <<%ld>> sender: %s sender_unique: %s payload: %s",
+            LOG_LS_DEBUG("RX: %s token <<%ld>> sender: %s sender_unique: %s payload: %s",
                     where, token, sender_service_name, sender_unique_name, payload);
         }
         else
         {
-            g_debug("RX: %s token <<%ld>> sender: %s sender_unique: %s",
+            LOG_LS_DEBUG("RX: %s token <<%ld>> sender: %s sender_unique: %s",
                     where, token, sender_service_name, sender_unique_name);
         }
     }
@@ -184,14 +189,14 @@ _lshandle_validate(LSHandle *sh)
             destroy_info_valid = dladdr(sh->history.destroyer_ret_addr, &destroy_info);
         }
 
-        g_critical("%s: Invalid handle %p, created by call from %s:%s, destroyed by call from %s:%s", __func__,
-            sh,
-            create_info_valid ? create_info.dli_fname : "(unknown)",
-            create_info_valid ? create_info.dli_sname : "(unknown)",
-            destroy_info_valid ? destroy_info.dli_fname : "(unknown)",
-            destroy_info_valid ? destroy_info.dli_sname : "(unknown)"
-        );
-        LS_ASSERT(!"invalid LSHandle");
+        LOG_LS_ERROR(MSGID_LS_INVALID_HANDLE, 5,
+                     PMLOGKFV("HANDLER", "%p", sh),
+                     PMLOGKS("CREATE_DLI_FNAME", create_info_valid ? create_info.dli_fname : "(unknown)"),
+                     PMLOGKS("CREATE_DLI_SNAME", create_info_valid ? create_info.dli_sname : "(unknown)"),
+                     PMLOGKS("DESTR_DLI_FNAME", destroy_info_valid ? destroy_info.dli_fname : "(unknown)"),
+                     PMLOGKS("DESTR_DLI_SNAME", destroy_info_valid ? destroy_info.dli_sname : "(unknown)"),
+                     "%s: Invalid handle", __func__);
+        LS_ASSERT(!"Invalid LSHandle");
     }
 }
 #endif
@@ -213,27 +218,27 @@ static struct GlobalState state =
     .lock     = PTHREAD_MUTEX_INITIALIZER,
 };
 
-/** 
+/**
 * @brief Global lock used exclusively for initialization.
 */
-static void
-_global_lock()
+void
+_LSGlobalLock()
 {
     pthread_mutex_lock(&state.lock);
 }
 
-/** 
+/**
 * @brief Global unlock used exclusively for initialization.
 */
-static void
-_global_unlock()
+void
+_LSGlobalUnlock()
 {
     pthread_mutex_unlock(&state.lock);
 }
 
-/** 
+/**
 * @brief Called once to initialize the Luna Service world.
-* 
+*
 * @retval
 */
 static void
@@ -248,13 +253,17 @@ _LSInit(void)
     if (ls_debug)
     {
         _ls_debug_tracing = atoi(ls_debug);
-        g_debug("Debug mode enabled to level %d", _ls_debug_tracing);
+        if (_ls_debug_tracing > 1)
+        {
+            PmLogSetContextLevel(PmLogGetLibContext(), kPmLogLevel_Debug);
+            LOG_LS_DEBUG("Log mode enabled to level %d", _ls_debug_tracing);
+        }
     }
 
     if (getenv("LS_ENABLE_UTF8"))
     {
         _ls_enable_utf8_validation = true;
-        g_debug("Enable UTF8 validation on payloads");
+        LOG_LS_DEBUG("Enable UTF8 validation on payloads");
     }
 }
 
@@ -286,18 +295,18 @@ _LSErrorSetFunc(LSError *lserror,
     return true;
 }
 
-/** 
+/**
  *******************************************************************************
  * @brief Use when the error_message is not a printf-style string
  * (error_message could contain printf() escape sequences)
- * 
- * @param  lserror 
- * @param  file 
- * @param  line 
- * @param  function 
- * @param  error_code 
- * @param  error_message 
- * 
+ *
+ * @param  lserror
+ * @param  file
+ * @param  line
+ * @param  function
+ * @param  error_code
+ * @param  error_message
+ *
  * @retval
  *******************************************************************************
  */
@@ -335,13 +344,13 @@ _LSErrorSetFromErrnoFunc(LSError *lserror,
 }
 
 #if 0
-/** 
+/**
 * @brief Called on unregister of category.
 *
 * @warn This is NOT implemented!
-* 
-* @param  connection 
-* @param  user_data 
+*
+* @param  connection
+* @param  user_data
 */
 static void
 _LSCategoryUnregister(LSHandle *sh, void *user_data)
@@ -353,44 +362,29 @@ _LSCategoryUnregister(LSHandle *sh, void *user_data)
 static LSMessageHandlerResult
 _LSHandleMethodCall(LSHandle *sh, _LSTransportMessage *transport_msg)
 {
-    LSMessageHandlerResult retVal = LSMessageHandlerResultHandled;
+    LSMessageHandlerResult retVal;
 
     LSMessage *message = _LSMessageNewRef(transport_msg, sh);
-    
+
     /* look up the name in tableHandlers */
     GHashTable *categories = sh->tableHandlers;
 
     const char* category_name = LSMessageGetCategory(message);
-    const char* method_name = LSMessageGetMethod(message);
 
     /* find the category in the tableHandlers (LSCategoryTable) */
     LSCategoryTable *category = g_hash_table_lookup(categories, category_name);
     if (!category)
     {
-        g_debug("Couldn't find category: %s", category_name);
+        LOG_LS_ERROR(MSGID_LS_NO_CATEGORY, 1,
+                     PMLOGKS("CATEGORY", category_name),
+                     "Couldn't find category: %s", category_name);
         retVal = LSMessageHandlerResultUnknownMethod;
-        goto exit;
     }
-
-    /* find the method in the tableHandlers->methods hash */
-    LSMethod *method = g_hash_table_lookup(category->methods, (gpointer)method_name);
-
-    if (!method)
+    else
     {
-        g_debug("couldn't find method: %s", method_name);
-        retVal = LSMessageHandlerResultUnknownMethod;
-        goto exit;
+        retVal = LSCategoryMethodCall(sh, category, transport_msg->client->service_name, message);
     }
 
-    bool handled = method->function(sh, message, category->category_user_data);
-
-    if (!handled)
-    {
-        g_debug("method wasn't handled!");
-        retVal = LSMessageHandlerResultNotHandled;
-    }
-
-exit:
     LSMessageUnref(message);
 
     return retVal;
@@ -408,7 +402,7 @@ _LSMessageHandler(_LSTransportMessage *message, void *context)
     {
     case _LSTransportMessageTypeMethodCall:
     case _LSTransportMessageTypeCancelMethodCall:
-        /* NOTE: the "cancel method call" is handled by the 
+        /* NOTE: the "cancel method call" is handled by the
          * _privateMethods -- _LSPrivateCancel, which is registered for
          * all services by default */
         retVal = _LSHandleMethodCall(context, message);
@@ -417,6 +411,7 @@ _LSMessageHandler(_LSTransportMessage *message, void *context)
     case _LSTransportMessageTypeSignal:
     case _LSTransportMessageTypeReply:
     case _LSTransportMessageTypeQueryServiceStatusReply:
+    case _LSTransportMessageTypeQueryServiceCategoryReply:
     case _LSTransportMessageTypeServiceDownSignal:
     case _LSTransportMessageTypeServiceUpSignal:
     case _LSTransportMessageTypeError:
@@ -425,30 +420,16 @@ _LSMessageHandler(_LSTransportMessage *message, void *context)
          * send an error reply message to a reply */
         _LSHandleReply(context, message);
         break;
-    
+
     default:
-        g_debug("Uh-oh -- received message we don't understand: %d", _LSTransportMessageGetType(message));
+        LOG_LS_WARNING(MSGID_LS_UNKNOWN_MSG, 1,
+                       PMLOGKFV("MSG_TYPE", "%d", _LSTransportMessageGetType(message)),
+                       "Received message we don't understand: %d",
+                       _LSTransportMessageGetType(message));
         break;
     }
 
     return retVal;
-}
-
-static void
-_LSCategoryTableFree(LSCategoryTable *table)
-{
-    if (table->methods)
-        g_hash_table_unref(table->methods);
-    if (table->signals)
-        g_hash_table_unref(table->signals);
-    if (table->properties)
-        g_hash_table_unref(table->properties);
-
-#ifdef MEMCHECK
-    memset(table, 0xFF, sizeof(LSCategoryTable));
-#endif
-
-    g_free(table);
 }
 
 /* @} END OF LunaServiceInternals */
@@ -459,17 +440,17 @@ _LSCategoryTableFree(LSCategoryTable *table)
  * @{
  */
 
-/** 
+/**
 * @brief Initializes a LSError.
-* 
-* @param  lserror 
-* 
+*
+* @param  lserror
+*
 * @retval
 */
 bool
 LSErrorInit(LSError *lserror)
 {
-    _LSErrorIfFail(lserror != NULL, NULL);
+    _LSErrorIfFail(lserror != NULL, NULL, MSGID_LS_ERROR_INIT_ERR);
 
     memset(lserror, 0, sizeof (LSError));
 
@@ -478,11 +459,11 @@ LSErrorInit(LSError *lserror)
     return true;
 }
 
-/** 
+/**
 * @brief Find the status of a LSError
-* 
-* @param  lserror 
-* 
+*
+* @param  lserror
+*
 * @retval true if the LSError contains an error code/message.
 */
 bool
@@ -493,11 +474,11 @@ LSErrorIsSet(LSError *lserror)
     return (lserror && lserror->error_code != 0);
 }
 
-/** 
+/**
 * @brief Convenience function to print a LSError
-* 
-* @param  lserror 
-* @param  out 
+*
+* @param  lserror
+* @param  out
 */
 void
 LSErrorPrint(LSError *lserror, FILE *out)
@@ -512,16 +493,43 @@ LSErrorPrint(LSError *lserror, FILE *out)
     }
     else
     {
-        fprintf(out, "LUNASERVICE ERROR: lserror is NULL. Did you pass in an LSError?");
+        fprintf(out, "LUNASERVICE ERROR: lserror is NULL. Did you pass in a LSError?");
     }
 }
 
-/** 
+/**
+* @brief Function to log a LSError with PmLogLib
+*
+* @param  log_context
+* @param  lserror
+*/
+void
+LSErrorLog(PmLogContext context, const char* message_id, LSError *lserror)
+{
+    LSERROR_CHECK_MAGIC(lserror);
+
+    if (lserror)
+    {
+        PmLogError(context, message_id, 5,
+                   PMLOGKFV("ERROR_CODE", "%d", lserror->error_code),
+                   PMLOGKS("ERROR", lserror->message),
+                   PMLOGKS("FUNC", lserror->func),
+                   PMLOGKS("FILE", lserror->file),
+                   PMLOGKFV("LINE", "%d", lserror->line),
+                   "LUNASERVICE ERROR");
+    }
+    else
+    {
+        LOG_LS_ERROR(MSGID_LS_NULL_LS_ERROR, 0, "lserror is NULL. Did you pass in a LSError?");
+    }
+}
+
+/**
 * @brief Frees the internal structures of LSError if an error has been handled.
 *        Must be called on an error if set.
-* 
-* @param  lserror 
-* 
+*
+* @param  lserror
+*
 * @retval
 */
 void
@@ -556,7 +564,7 @@ _LSPrivateCancel(LSHandle* sh, LSMessage *message, void *user_data)
     retVal = _CatalogHandleCancel(sh->catalog, message, &lserror);
     if (!retVal)
     {
-        LSErrorPrint(&lserror, stderr);
+        LOG_LSERROR(MSGID_LS_CANT_CANCEL_METH, &lserror);
         LSErrorFree(&lserror);
     }
 
@@ -574,8 +582,7 @@ _LSPrivatePing(LSHandle* lshandle, LSMessage *message, void *user_data)
     retVal = LSMessageReply(lshandle, message, ping_string, &lserror);
     if (!retVal)
     {
-        g_critical("%s: sending ping failed", __FUNCTION__);
-        LSErrorPrint(&lserror, stderr);
+        LOG_LSERROR(MSGID_LS_CANT_PING, &lserror);
         LSErrorFree (&lserror);
     }
 
@@ -592,17 +599,20 @@ static LSMethod _privateMethods[] = {
     { "mallinfo", _LSPrivateGetMallinfo},
     { "malloc_trim", _LSPrivateDoMallocTrim},
 #endif
+#ifdef INTROSPECTION_DEBUG
+    { "introspection", _LSPrivateInrospection},
+#endif
     { },
 };
 
 
-/** 
+/**
 * @brief Set a function to be called if we are disconnected from the bus.
-* 
-* @param  sh 
-* @param  disconnect_handler 
-* @param  lserror 
-* 
+*
+* @param  sh
+* @param  disconnect_handler
+* @param  lserror
+*
 * @retval
 */
 bool
@@ -610,7 +620,7 @@ LSSetDisconnectHandler(LSHandle *sh, LSDisconnectHandler disconnect_handler,
                        void *user_data,
                        LSError *lserror)
 {
-    _LSErrorIfFail(sh != NULL, lserror);
+    _LSErrorIfFail(sh != NULL, lserror, MSGID_LS_INVALID_HANDLE);
     LSHANDLE_VALIDATE(sh);
     sh->disconnect_handler = disconnect_handler;
     sh->disconnect_handler_data = user_data;
@@ -626,16 +636,11 @@ _LSRegisterCommon(const char *name, LSHandle **ret_sh,
                   void *call_ret_addr,
                   LSError *lserror)
 {
-    _LSErrorIfFail(ret_sh != NULL, lserror);
+    _LSErrorIfFail(ret_sh != NULL, lserror, MSGID_LS_INVALID_HANDLE);
 
     pthread_once(&state.key_once, _LSInit);
 
     LSHandle *sh = g_new0(LSHandle, 1);
-    if (!sh)
-    {
-        _LSErrorSetOOM(lserror);
-        goto error;
-    }
 
     /* For backward compatibility, convert empty string to NULL */
     if (name && name[0] == '\0')
@@ -644,29 +649,22 @@ _LSRegisterCommon(const char *name, LSHandle **ret_sh,
     }
 
     sh->name        = g_strdup(name);
-    sh->transport     = NULL;
+    sh->transport   = NULL;
 
     LSHANDLE_SET_VALID(sh, call_ret_addr);
 
-    if (name && !sh->name)
-    {
-        _LSErrorSetOOM(lserror);
-        goto error;
-    }
-
     /* custom message queue */
     sh->custom_message_queue = LSCustomMessageQueueNew();
-
     if (!sh->custom_message_queue)
     {
-        _LSErrorSetOOM(lserror);
+        LOG_LS_ERROR(MSGID_LS_QUEUE_ERROR, 0, "Failed to create new message queue");
         goto error;
     }
 
     LSTransportHandlers _LSTransportHandler =
     {
         .msg_handler = _LSMessageHandler,
-        .msg_context = sh, 
+        .msg_context = sh,
         .disconnect_handler = _LSDisconnectHandler,
         .disconnect_context = sh,
         .message_failure_handler = _LSHandleMessageFailure,
@@ -677,16 +675,16 @@ _LSRegisterCommon(const char *name, LSHandle **ret_sh,
     {
         goto error;
     }
-    
+
     /* Connect to the hub and listen for incoming calls */
     if (!_LSTransportConnect(sh->transport, true, public_bus, lserror))
     {
         if (lserror->error_code == LS_ERROR_CODE_CONNECT_FAILURE)
         {
-            g_critical("Failed to connect. Is the hub running?");
+            LOG_LS_ERROR(MSGID_LS_CONN_ERROR, 0, "Failed to connect. Is the hub running?");
         }
         goto error;
-    } 
+    }
 
     if (!_CallMapInit(sh, &sh->callmap, lserror))
     {
@@ -696,6 +694,7 @@ _LSRegisterCommon(const char *name, LSHandle **ret_sh,
     sh->catalog = _CatalogNew(sh);
     if (!sh->catalog)
     {
+        LOG_LS_ERROR(MSGID_LS_CATALOG_ERR, 0, "Failed to create new subscription catalog");
         goto error;
     }
 
@@ -735,14 +734,14 @@ error:
     return false;
 }
 
-/** 
+/**
 * @brief Connect to bus by type.
-* 
-* @param  name 
-* @param  *sh 
-* @param  public_bus 
-* @param  lserror 
-* 
+*
+* @param  name
+* @param  *sh
+* @param  public_bus
+* @param  lserror
+*
 * @retval
 */
 bool
@@ -769,11 +768,11 @@ LSHandleGetName(LSHandle *sh)
 * LSRegisterCategory(), and send replies via LSMessageReply() or
 * LSSubscriptionPost().  A traditional client may register with a NULL name if
 * it never expects to be sent messages.
-* 
-* @param  name 
-* @param  *serviceHandle 
-* @param  lserror 
-* 
+*
+* @param  name
+* @param  *serviceHandle
+* @param  lserror
+*
 * @retval
 */
 bool
@@ -786,7 +785,7 @@ LSRegister(const char *name, LSHandle **sh,
 bool
 LSUnregisterPalmService(LSPalmService *psh, LSError *lserror)
 {
-    _LSErrorIfFail(psh != NULL, lserror);
+    _LSErrorIfFail(psh != NULL, lserror, MSGID_LS_INVALID_HANDLE);
 
     bool retVal;
 
@@ -808,14 +807,14 @@ error:
 }
 
 
-/** 
+/**
 * @brief Register a service that may expose public methods on the public bus,
 *        and internal methods on the private bus.
-* 
-* @param  name 
+*
+* @param  name
 * @param  *ret_public_service
-* @param  lserror 
-* 
+* @param  lserror
+*
 * @retval
 */
 bool
@@ -823,13 +822,13 @@ LSRegisterPalmService(const char *name,
                   LSPalmService **ret_public_service,
                   LSError *lserror)
 {
-    _LSErrorIfFailMsg(ret_public_service != NULL, lserror,
+    _LSErrorIfFailMsg(ret_public_service != NULL, lserror, MSGID_LS_INVALID_HANDLE,
         -EINVAL, "Invalid parameter ret_public_service to %s", __FUNCTION__);
 
     bool retVal;
 
     LSPalmService *psh = g_new0(LSPalmService,1);
-    
+
     retVal = _LSRegisterCommon(name, &psh->public_sh, true, LSHANDLE_GET_RETURN_ADDR(), lserror);
     if (!retVal) goto error;
 
@@ -845,12 +844,12 @@ error:
     return retVal;
 }
 
-/** 
+/**
 * @brief Obtain the private service handle from a public
 *        service.
-* 
-* @param  psh 
-* 
+*
+* @param  psh
+*
 * @retval
 */
 LSHandle *
@@ -860,12 +859,12 @@ LSPalmServiceGetPrivateConnection(LSPalmService *psh)
     return psh->private_sh;
 }
 
-/** 
+/**
 * @brief Obtain the public service handle from a public
 *        service.
-* 
-* @param  psh 
-* 
+*
+* @param  psh
+*
 * @retval
 */
 LSHandle *
@@ -875,253 +874,12 @@ LSPalmServiceGetPublicConnection(LSPalmService *psh)
     return psh->public_sh;
 }
 
-static char* 
-_category_to_object_path_alloc(const char *category)
-{
-    char *category_path;
-
-    if (NULL == category)
-    {
-        category_path = g_strdup("/"); // default category
-    }
-    else if ('/' == category[0])
-    {
-        category_path = g_strdup(category);
-    }
-    else
-    {
-        category_path = g_strdup_printf("/%s", category);
-    }
-
-    return category_path;
-}
-
-/** 
-* @brief Append methods to the category.
-*        Creates a category if needed.
-* 
-* @param  sh 
-* @param  category 
-* @param  methods 
-* @param  signals 
-* @param  category_user_data 
-* @param  lserror 
-* 
-* @retval
-*/
-bool
-LSRegisterCategoryAppend(LSHandle *sh, const char *category,
-                   LSMethod      *methods,
-                   LSSignal      *signals,
-                   LSError *lserror)
-{
-    LSHANDLE_VALIDATE(sh);
-
-    LSCategoryTable *table = NULL;
-
-    if (!sh->tableHandlers)
-    {
-        sh->tableHandlers = g_hash_table_new_full(g_str_hash, g_str_equal,
-            /*key*/ (GDestroyNotify)g_free,
-            /*value*/ (GDestroyNotify)_LSCategoryTableFree);
-    }
-
-    char *category_path = _category_to_object_path_alloc(category);
-
-    table =  g_hash_table_lookup(sh->tableHandlers, category_path);
-    if (!table)
-    {
-        table = g_new0(LSCategoryTable, 1);
-        _LSErrorGotoIfFail(fail, table != NULL, lserror, -ENOMEM, "OOM");
-
-        table->sh = sh;
-        table->methods    = g_hash_table_new(g_str_hash, g_str_equal);
-        table->signals    = g_hash_table_new(g_str_hash, g_str_equal);
-        table->category_user_data = NULL;
-
-        g_hash_table_replace(sh->tableHandlers, category_path, table);
-
-    }
-    else
-    {
-        /* 
-         * We've already registered the category, so free the unneeded
-         * category_path. This will happen when we call
-         * LSRegisterCategoryAppend multiple times with the same category
-         * (i.e., LSPalmServiceRegisterCategory)
-         */
-        g_free(category_path);
-        category_path = NULL;
-    }
-
-    /* Add methods to table. */
-
-    if (methods)
-    {
-        LSMethod *m;
-        for (m = methods; m->name && m->function; m++)
-        {
-            g_hash_table_replace(table->methods, (gpointer)m->name, m);
-        }
-    }
-
-    if (signals)
-    {
-        LSSignal *s;
-        for (s = signals; s->name; s++)
-        {
-            g_hash_table_replace(table->signals, (gpointer)s->name, s);
-        }
-    }
-
-    return true;
-
-fail:
-    return false;
-}
-
-/** 
-* @brief Register public methods and private methods.
-* 
-* @param  psh 
-* @param  category 
-* @param  methods_public 
-* @param  methods_private 
-* @param  signals 
-* @param  category_user_data 
-* @param  lserror 
-* 
-* @retval
-*/
-bool
-LSPalmServiceRegisterCategory(LSPalmService *psh,
-    const char *category, LSMethod *methods_public, LSMethod *methods_private,
-    LSSignal *signals, void *category_user_data, LSError *lserror)
-{
-    bool retVal;
-
-    retVal = LSRegisterCategoryAppend(psh->public_sh,
-        category, methods_public, signals, lserror);
-    if (!retVal) goto error;
-
-    retVal = LSCategorySetData(psh->public_sh, category,
-                      category_user_data, lserror);
-    if (!retVal) goto error;
-
-    /* Private bus is union of public and private methods. */
-
-    retVal = LSRegisterCategoryAppend(psh->private_sh,
-        category, methods_private, signals, lserror);
-    if (!retVal) goto error;
-
-    retVal = LSRegisterCategoryAppend(psh->private_sh,
-        category, methods_public, NULL, lserror);
-    if (!retVal) goto error;
-
-    retVal = LSCategorySetData(psh->private_sh, category,
-                      category_user_data, lserror);
-    if (!retVal) goto error;
-error:
-    return retVal;
-}
-
-/** 
-* @brief Set the userdata that is delivered to each callback registered
-*        to the category.
-* 
-* @param  sh 
-* @param  category 
-* @param  user_data 
-* @param  lserror 
-* 
-* @retval
-*/
-bool
-LSCategorySetData(LSHandle *sh, const char *category, void *user_data, LSError *lserror)
-{
-    LSHANDLE_VALIDATE(sh);
-
-    LSCategoryTable *table;
-
-    char *categoryPath = _category_to_object_path_alloc(category);
-
-    _global_lock();
-
-    _LSErrorGotoIfFail(fail, sh->tableHandlers != NULL, lserror,
-        -1, "%s: %s not registered.", __FUNCTION__, category);
-
-    table = g_hash_table_lookup(sh->tableHandlers, category);
-    _LSErrorGotoIfFail(fail, table != NULL, lserror,
-        -1, "%s: %s not registered.", __FUNCTION__, category);
-
-    table->category_user_data = user_data;
-
-    _global_unlock();
-    g_free(categoryPath);
-    return true;
-
-fail:
-    _global_unlock();
-    g_free(categoryPath);
-
-    return false;
-}
-
-static bool
-_category_exists(LSHandle *sh, const char *category)
-{
-    if (!sh->tableHandlers) return false;
-
-    char *category_path = _category_to_object_path_alloc(category);
-    bool exists = false;
-
-    if (g_hash_table_lookup(sh->tableHandlers, category_path))
-    {
-        exists = true;
-    }
-
-    g_free(category_path);
-
-    return exists;
-}
-
-/** 
-* @brief Register tables of callbacks associated with the message category.
-* 
-* @param  category    - May be NULL for default '/' category.
-* @param  methods     - table of methods.
-* @param  signals     - table of signals.
-* @param  properties  - table of properties.
-* @param  lserror 
-* 
-* @retval
-*/
-bool
-LSRegisterCategory(LSHandle *sh, const char *category,
-                   LSMethod      *methods,
-                   LSSignal      *signals,
-                   LSProperty    *properties, LSError *lserror)
-{
-    _LSErrorIfFail(sh != NULL, lserror);
-
-    LSHANDLE_VALIDATE(sh);
-
-    if (_category_exists(sh, category))
-    {
-        _LSErrorSet(lserror, -1,
-                    "Category %s already registered.", category);
-        return false;
-    }
-
-    return LSRegisterCategoryAppend(sh, category, methods, signals, lserror);
-}
-
 bool
 _LSUnregisterCommon(LSHandle *sh, bool flush_and_send_shutdown, void *call_ret_addr, LSError *lserror)
 {
-    _LSErrorIfFail(sh != NULL, lserror);
+    _LSErrorIfFail(sh != NULL, lserror, MSGID_LS_INVALID_HANDLE);
 
-    _global_lock();
+    _LSGlobalLock();
 
     if (sh->tableHandlers)
     {
@@ -1159,18 +917,18 @@ _LSUnregisterCommon(LSHandle *sh, bool flush_and_send_shutdown, void *call_ret_a
 
     g_free(sh);
 
-    _global_unlock();
+    _LSGlobalUnlock();
 
     return true;
 }
 
 
-/** 
+/**
 * @brief Unregister a service.
-* 
-* @param  service 
-* @param  lserror 
-* 
+*
+* @param  service
+* @param  lserror
+*
 * @retval
 */
 bool
@@ -1179,14 +937,14 @@ LSUnregister(LSHandle *sh, LSError *lserror)
     return _LSUnregisterCommon(sh, true, LSHANDLE_GET_RETURN_ADDR(), lserror );
 }
 
-/** 
+/**
  * @brief Push a role file for this process. Once the role file has been
  * pushed with this function, the process will be restricted to the
  * constraints of the provided role file.
- * 
+ *
  * @param  sh           IN  handle (already connected with LSRegister())
  * @param  role_path    IN  full path to role file
- * @param  lserror      OUT set on error 
+ * @param  lserror      OUT set on error
  *
  * @retval true on success
  * @retval false on failure
@@ -1194,27 +952,27 @@ LSUnregister(LSHandle *sh, LSError *lserror)
 bool
 LSPushRole(LSHandle *sh, const char *role_path, LSError *lserror)
 {
-    _LSErrorIfFail(sh != NULL, lserror);
+    _LSErrorIfFail(sh != NULL, lserror, MSGID_LS_INVALID_HANDLE);
 
     LSHANDLE_VALIDATE(sh);
 
     return LSTransportPushRole(sh->transport, role_path, lserror);
 }
 
-/** 
+/**
  * @brief Same as LSPushRole(), but for a LSPalmService connection.
- * 
- * @param  psh          IN  handle 
- * @param  role_path    IN  full path to role file 
- * @param  lserror      OUT set on error 
- * 
+ *
+ * @param  psh          IN  handle
+ * @param  role_path    IN  full path to role file
+ * @param  lserror      OUT set on error
+ *
  * @retval true on success
  * @retval false on failure
  */
 bool
 LSPushRolePalmService(LSPalmService *psh, const char *role_path, LSError *lserror)
 {
-    _LSErrorIfFail(psh != NULL, lserror);
+    _LSErrorIfFail(psh != NULL, lserror, MSGID_LS_INVALID_HANDLE);
 
     bool retVal = true;
 
@@ -1235,28 +993,3 @@ error:
 }
 
 /* @} END OF LunaServiceRegistration */
-
-#if 0
-/**
- * @addtogroup LunaServiceDBus
- * @{
- */
-
-/** 
-* @brief Get the DBus connection associated with this Luna Service.
-* 
-* @param  service 
-* 
-* @retval
-*/
-DBusConnection *
-LSGetDBusConnection(LSHandle *sh)
-{
-    _LSErrorIfFail(sh != NULL, NULL);
-    _LSErrorIfFail(sh->conn != NULL, NULL);
-
-    return sh->conn;
-}
-
-/* @} END OF LunaServiceDBus */
-#endif

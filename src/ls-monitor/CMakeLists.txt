@@ -1,6 +1,6 @@
 # @@@LICENSE
 #
-#      Copyright (c) 2008-2012 Hewlett-Packard Development Company, L.P.
+#      Copyright (c) 2008-2014 LG Electronics, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,8 +21,6 @@ set(MONITOR_SOURCE_FILES
     monitor_queue.c
     )
 
-add_definitions(-DG_LOG_DOMAIN="LunaServiceMonitor")
-
 if(TARGET_DESKTOP)
 	add_definitions(-DPID_DIR="/tmp")
 else()
@@ -31,4 +29,9 @@ endif()
 
 add_executable(ls-monitor ${MONITOR_SOURCE_FILES})
 target_link_libraries(ls-monitor ${CMAKE_PROJECT_NAME})
-webos_build_program(NAME ls-monitor ${LS2_RESTRICTED})
+webos_build_program(NAME ls-monitor ADMIN ${LS2_RESTRICTED})
+
+add_executable(ls-monitor-pub ${MONITOR_SOURCE_FILES})
+target_link_libraries(ls-monitor-pub ${CMAKE_PROJECT_NAME})
+webos_build_program(NAME ls-monitor-pub)
+set_target_properties(ls-monitor-pub PROPERTIES COMPILE_DEFINITIONS "PUBLIC_ONLY")

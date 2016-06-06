@@ -1,6 +1,6 @@
 /* @@@LICENSE
 *
-*      Copyright (c) 2008-2012 Hewlett-Packard Development Company, L.P.
+*      Copyright (c) 2008-2013 LG Electronics, Inc.
 *
 * Licensed under the Apache License, Version 2.0 (the "License");
 * you may not use this file except in compliance with the License.
@@ -25,6 +25,7 @@
 
 #define SUBSCRIPTION_DEBUG
 #define MALLOC_DEBUG
+#define INTROSPECTION_DEBUG
 
 #ifdef SUBSCRIPTION_DEBUG
 bool _LSPrivateGetSubscriptions(LSHandle* sh, LSMessage *message, void *ctx);
@@ -32,6 +33,9 @@ bool _LSPrivateGetSubscriptions(LSHandle* sh, LSMessage *message, void *ctx);
 #ifdef MALLOC_DEBUG
 bool _LSPrivateGetMallinfo(LSHandle* sh, LSMessage *message, void *ctx);
 bool _LSPrivateDoMallocTrim(LSHandle* sh, LSMessage *message, void *ctx);
+#endif
+#ifdef INTROSPECTION_DEBUG
+bool _LSPrivateInrospection(LSHandle* sh, LSMessage *message, void *ctx);
 #endif
 
 #endif // _DEBUG_METHODS_H_

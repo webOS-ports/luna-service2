@@ -1,6 +1,6 @@
 /* @@@LICENSE
 *
-*      Copyright (c) 2008-2012 Hewlett-Packard Development Company, L.P.
+*      Copyright (c) 2008-2013 LG Electronics, Inc.
 *
 * Licensed under the Apache License, Version 2.0 (the "License");
 * you may not use this file except in compliance with the License.
@@ -20,6 +20,8 @@
 #ifndef _SUBSCRIPTION_H_
 #define _SUBSCRIPTION_H_
 
+#include "transport_message.h"
+
 typedef struct LSSubscriptionList LSSubscriptionList;
 typedef struct _Catalog _Catalog;
 
@@ -29,7 +31,9 @@ void _CatalogFree(_Catalog *catalog);
 bool _CatalogHandleCancel(_Catalog *catalog, LSMessage *cancelMsg,
                           LSError *lserror);
 
-bool _LSSubscriptionGetJson(LSHandle *sh, struct json_object **ret_obj,
+void _LSCatalogRemoveClientSubscriptions(_Catalog *catalog, _LSTransportClient *client);
+
+bool _LSSubscriptionGetJson(LSHandle *sh, jvalue_ref *ret_obj,
                             LSError *lserror);
 
 #endif // _SUBSCRIPTION_H_

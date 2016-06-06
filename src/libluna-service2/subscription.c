@@ -1,6 +1,6 @@
 /* @@@LICENSE
 *
-*      Copyright (c) 2008-2012 Hewlett-Packard Development Company, L.P.
+*      Copyright (c) 2008-2014 LG Electronics, Inc.
 *
 * Licensed under the Apache License, Version 2.0 (the "License");
 * you may not use this file except in compliance with the License.
@@ -32,12 +32,17 @@
  * @{
  */
 
-/** 
+/**
 * @brief Internal representation of a subscription list.
 */
 typedef GPtrArray _SubList;
 
-/** 
+/**
+* @brief Internal representation of a subscriber cancel notification callback list.
+*/
+typedef GPtrArray _CancelNotifyCallbackList;
+
+/**
 * @brief One subscription.
 */
 typedef struct _Subscription
@@ -45,13 +50,11 @@ typedef struct _Subscription
     LSMessage       *message;
     GPtrArray       *keys;
 
-    LSMessageToken   serverStatusWatch;
-
     int              ref;
 
 } _Subscription;
 
-/** 
+/**
 * @brief Internal struct that contains all the subscriptions.
 */
 struct _Catalog {
@@ -60,18 +63,31 @@ struct _Catalog {
 
     LSHandle  *sh;
 
-    // each key is user defined 
+    // each key is user defined
     // each token is ':sender.connection.serial'
-    
+
     GHashTable *token_map;           //< map of token -> _Subscription
     GHashTable *subscription_lists;  //< map from key ->
+                                     //   list of tokens (_SubList)
+    GHashTable *client_subscriptions;//< map unique_name ->
                                      //   list of tokens (_SubList)
 
     LSFilterFunc cancel_function;
     void*        cancel_function_ctx;
+
+    _CancelNotifyCallbackList *cancel_notify_list;
 };
 
-/** 
+/**
+* @brief Subscriber's cancellation notification callback.
+*/
+typedef struct _SubscriberCancelNotification
+{
+    LSCancelNotificationFunc function;
+    void                    *context;
+} _SubscriberCancelNotification;
+
+/**
 * @brief User reference to a subscription list.
 */
 struct LSSubscriptionIter {
@@ -83,7 +99,6 @@ struct LSSubscriptionIter {
     int index;
 };
 
-static bool _subscriber_down(LSHandle *sh, LSMessage *message, void *ctx);
 static void _SubscriptionRelease(_Catalog *catalog, _Subscription *subs);
 
 static void
@@ -119,22 +134,6 @@ _SubscriptionFree(_Catalog *catalog, _Subscription *subs)
         {
             g_ptr_array_foreach(subs->keys, (GFunc)g_free, NULL);
             g_ptr_array_free(subs->keys, TRUE);
-        }
-
-        if (subs->serverStatusWatch)
-        {
-            bool retVal;
-            LSError lserror;
-            LSErrorInit(&lserror);
-            retVal = LSCallCancel(catalog->sh, subs->serverStatusWatch,
-                        &lserror);
-            if (!retVal)
-            {
-                g_critical("%s Could not cancel server status watch",
-                    __FUNCTION__);
-                LSErrorPrint(&lserror, stderr);
-                LSErrorFree(&lserror);
-            }
         }
 
 #ifdef MEMCHECK
@@ -177,61 +176,32 @@ _SubscriptionRelease(_Catalog *catalog, _Subscription *subs)
     }
 }
 
-/** 
+/**
 * @brief Create a new subscription.
-* 
-* @param  message 
-* 
+*
+* @param  message
+*
 * @retval
 */
 static _Subscription *
 _SubscriptionNew(LSHandle *sh, LSMessage *message)
 {
     _Subscription *subs;
-    bool retVal;
 
     subs = g_new0(_Subscription,1);
-    if (!subs) goto error;
 
     subs->ref = 1;
-
     subs->keys = g_ptr_array_new();
-    if (!subs->keys) goto error;
 
     LSMessageRef(message);
     subs->message = message;
 
-    char *payload = g_strdup_printf("{\"serviceName\":\"%s\"}",
-            LSMessageGetSender(message));
-    if (!payload) goto error;
-
-    LSError lserror;
-    LSErrorInit(&lserror);
-
-    LSMessageToken token = LSMessageGetToken(message);
-
-    retVal = LSCall(sh, "palm://com.palm.bus/signal/registerServerStatus",
-           payload, _subscriber_down, (void*)token,
-           &subs->serverStatusWatch, &lserror);
-    g_free(payload);
-
-    if (!retVal)
-    {
-        LSErrorPrint(&lserror, stderr);
-        LSErrorFree(&lserror);
-        goto error;
-    }
-
     return subs;
-
-error:
-    _SubscriptionFree(sh->catalog, subs);
-    return NULL;
 }
 
-/** 
+/**
 * @brief Create new subscription List
-* 
+*
 * @retval
 */
 static _SubList *
@@ -256,11 +226,11 @@ _SubListLen(_SubList *tokens)
     return tokens->len;
 }
 
-/** 
+/**
 * @brief Add _SubList.
-* 
-* @param  tokens 
-* @param  data 
+*
+* @param  tokens
+* @param  data
 */
 static void
 _SubListAdd(_SubList *tokens, char *data)
@@ -269,7 +239,7 @@ _SubListAdd(_SubList *tokens, char *data)
         g_ptr_array_add(tokens, data);
 }
 
-static _SubList* 
+static _SubList*
 _SubListDup(_SubList *src)
 {
     _SubList *dst = NULL;
@@ -289,11 +259,11 @@ _SubListDup(_SubList *src)
     return dst;
 }
 
-/** 
+/**
 * @brief Remove from _SubList.  This is more expensive.
-* 
-* @param  tokens 
-* @param  data 
+*
+* @param  tokens
+* @param  data
 */
 static void
 _SubListRemove(_SubList *tokens, const char *data)
@@ -304,7 +274,7 @@ _SubListRemove(_SubList *tokens, const char *data)
     for (i = 0; i < tokens->len; i++)
     {
         char *tok = g_ptr_array_index(tokens, i);
-        if (strncmp(tok, data, 50) == 0)
+        if (strcmp(tok, data) == 0)
         {
             g_ptr_array_remove_index(tokens, i);
             g_free(tok);
@@ -339,7 +309,7 @@ _SubListContains(_SubList *tokens, const char *data)
     for (i = 0; i < tokens->len; i++)
     {
         char *tok = g_ptr_array_index(tokens, i);
-        if (strncmp(tok, data, 50) == 0)
+        if (strcmp(tok, data) == 0)
         {
             return true;
         }
@@ -352,10 +322,11 @@ _SubListGet(_SubList *tokens, int i)
 {
     if (i < 0 || i >= tokens->len)
     {
-        g_critical("%s: attempting to get out of range subscription %d\n"
-               "It is possible you forgot to follow the pattern: "
-               " LSSubscriptionHasNext() + LSSubscriptionNext()",
-            __FUNCTION__, i);
+        LOG_LS_ERROR(MSGID_LS_SUBSCRIPTION_ERR, 0,
+                     "%s: attempting to get out of range subscription %d\n"
+                     "It is possible you forgot to follow the pattern: "
+                     " LSSubscriptionHasNext() + LSSubscriptionNext()",
+                     __FUNCTION__, i);
         return NULL;
     }
 
@@ -363,31 +334,72 @@ _SubListGet(_SubList *tokens, int i)
     return g_ptr_array_index(tokens, i);
 }
 
+/**
+* @brief Create a new subscriber cancel notification item.
+*
+* @param  message
+* @param  context
+*
+* @retval
+*/
+static _SubscriberCancelNotification *
+_SubscriberCancelNotificationNew(LSCancelNotificationFunc function, void *context)
+{
+    _SubscriberCancelNotification *scn = g_new0(_SubscriberCancelNotification, 1);
+    scn->function = function;
+    scn->context = context;
+    return scn;
+}
+
+static void
+_SubscriberCancelNotificationFree(_SubscriberCancelNotification *scn)
+{
+    g_free(scn);
+}
+
+/**
+* @brief Create a new subscriber cancellation notifications list
+*
+* @retval
+*/
+static _CancelNotifyCallbackList *
+_SubscriberCancelNotificationListNew()
+{
+    return g_ptr_array_new_full(1, (GDestroyNotify)_SubscriberCancelNotificationFree);
+}
+
+static void
+_SubscriberCancelNotificationListFree(_CancelNotifyCallbackList *scnList)
+{
+    if (!scnList) return;
+
+    g_ptr_array_free(scnList, TRUE);
+}
+
 _Catalog *
 _CatalogNew(LSHandle *sh)
 {
     _Catalog *catalog = g_new0(_Catalog, 1);
-    if (!catalog) goto error_before_mutex;
 
-    pthread_mutex_init(&catalog->lock, NULL);
+    if (pthread_mutex_init(&catalog->lock, NULL))
+    {
+        LOG_LS_ERROR(MSGID_LS_MUTEX_ERR, 0, "Could not initialize mutex.");
+        goto error;
+    }
 
     catalog->token_map = g_hash_table_new_full(
             g_str_hash, g_str_equal, g_free, NULL);
-    if (!catalog->token_map) goto error;
 
     catalog->subscription_lists = g_hash_table_new_full(
             g_str_hash, g_str_equal, g_free, (GDestroyNotify)_SubListFree);
-    if (!catalog->subscription_lists) goto error;
+    catalog->client_subscriptions = g_hash_table_new_full(
+            g_str_hash, g_str_equal, g_free, (GDestroyNotify)_SubListFree);
 
     catalog->sh = sh;
 
     return catalog;
 
 error:
-    pthread_mutex_destroy(&catalog->lock);
-
-error_before_mutex:
-
     _CatalogFree(catalog);
     return NULL;
 }
@@ -414,6 +426,14 @@ _CatalogFree(_Catalog *catalog)
         {
             g_hash_table_destroy(catalog->subscription_lists);
         }
+        if (catalog->client_subscriptions)
+        {
+            g_hash_table_destroy(catalog->client_subscriptions);
+        }
+        if (catalog->cancel_notify_list)
+        {
+            _SubscriberCancelNotificationListFree(catalog->cancel_notify_list);
+        }
 
 #ifdef MEMCHECK
         memset(catalog, 0xFF, sizeof(_Catalog));
@@ -431,7 +451,7 @@ _CatalogAdd(_Catalog *catalog, const char *key,
     const char *token = LSMessageGetUniqueToken(message);
     if (!token)
     {
-        _LSErrorSet(lserror, -ENOMEM, "Out of memory");
+        _LSErrorSet(lserror, MSGID_LS_TOKEN_ERR, -1, "Could not get unique token");
         return false;
     }
 
@@ -446,10 +466,20 @@ _CatalogAdd(_Catalog *catalog, const char *key,
                              g_strdup(key), list);
     }
 
-    if (!list)
+    const char* client_name = LSMessageGetSender(message);
+    if (!client_name)
     {
-        _LSErrorSet(lserror, -ENOMEM, "Out of memory");
-        goto cleanup;
+        _LSErrorSet(lserror, MSGID_LS_UNAME_ERR, -1, "Could not get service unique name");
+        return false;
+    }
+
+    _SubList *client_list =
+        g_hash_table_lookup(catalog->client_subscriptions, client_name);
+    if (!client_list)
+    {
+        client_list = _SubListNew();
+        g_hash_table_replace(catalog->client_subscriptions,
+                             g_strdup(client_name), client_list);
     }
 
     _Subscription *subs = g_hash_table_lookup(catalog->token_map, token);
@@ -472,6 +502,11 @@ _CatalogAdd(_Catalog *catalog, const char *key,
         _SubListAdd(list, g_strdup(token));
     }
 
+    if (!_SubListContains(client_list, token))
+    {
+        _SubListAdd(client_list, g_strdup(token));
+    }
+
     if (!g_char_ptr_array_contains(subs->keys, key))
     {
         g_ptr_array_add(subs->keys, g_strdup(key));
@@ -489,7 +524,7 @@ _CatalogRemoveToken(_Catalog *catalog, const char *token,
                              bool notify)
 {
     _Subscription *subs = _SubscriptionAcquire(catalog, token);
-    if (!subs) return false; 
+    if (!subs) return false;
 
     if (notify && catalog->cancel_function)
     {
@@ -499,6 +534,7 @@ _CatalogRemoveToken(_Catalog *catalog, const char *token,
 
     _CatalogLock(catalog);
     int i;
+    // Remove subscription from key sublists
     for (i = 0; i < subs->keys->len; i++)
     {
         const char *key = g_ptr_array_index(subs->keys, i);
@@ -513,6 +549,19 @@ _CatalogRemoveToken(_Catalog *catalog, const char *token,
             g_hash_table_remove(catalog->subscription_lists, key);
         }
     }
+
+    // Remove subscrition from client subscription list
+    const char *client_name = LSMessageGetSender(subs->message);
+    _SubList *client_sub_list =
+        g_hash_table_lookup(catalog->client_subscriptions, client_name);
+
+    _SubListRemove(client_sub_list, token);
+
+    if (_SubListLen(client_sub_list) == 0)
+    {
+        g_hash_table_remove(catalog->client_subscriptions, client_name);
+    }
+
     _CatalogUnlock(catalog);
 
     _SubscriptionRemove(catalog, subs, token);
@@ -522,48 +571,69 @@ _CatalogRemoveToken(_Catalog *catalog, const char *token,
     return true;
 }
 
+static void
+_CatalogCallCancelNotifications(_Catalog *catalog, const char *uniqueToken)
+{
+    LS_ASSERT(uniqueToken);
+    _CatalogLock(catalog);
+    if (catalog->cancel_notify_list)
+    {
+        int idx;
+        for (idx = 0; idx < catalog->cancel_notify_list->len; ++idx)
+        {
+            _SubscriberCancelNotification *scn = g_ptr_array_index(catalog->cancel_notify_list, idx);
+            if (scn->function)
+            {
+                scn->function(catalog->sh, uniqueToken, scn->context);
+            }
+        }
+    }
+    _CatalogUnlock(catalog);
+}
+
 bool
 _CatalogHandleCancel(_Catalog *catalog, LSMessage *cancelMsg,
                      LSError *lserror)
 {
+    JSchemaInfo schemaInfo;
+    jschema_info_init(&schemaInfo, jschema_all(), NULL, NULL);
+
     const char *sender;
     int token;
-    struct json_object *tokenObj = NULL;
+    jvalue_ref tokenObj = NULL;
 
     const char *payload = LSMessageGetPayload(cancelMsg);
 
-    struct json_object *object = json_tokener_parse(payload);
-    if (JSON_ERROR(object))
+    jvalue_ref object = jdom_parse(j_cstr_to_buffer(payload), DOMOPT_NOOPT,
+                                   &schemaInfo);
+    if (jis_null(object))
     {
-        _LSErrorSet(lserror, -EINVAL, "Invalid json");
+        _LSErrorSet(lserror, MSGID_LS_INVALID_JSON, -EINVAL, "Invalid json");
         goto error;
     }
 
     sender = LSMessageGetSender(cancelMsg);
 
-    if (!json_object_object_get_ex(object, "token", &tokenObj))
+    if (!jobject_get_exists(object, J_CSTR_TO_BUF("token"), &tokenObj) ||
+        tokenObj == NULL || !jis_number(tokenObj))
     {
-        _LSErrorSet(lserror, -EINVAL, "Invalid json");
+        _LSErrorSet(lserror, MSGID_LS_INVALID_JSON, -EINVAL, "Invalid json");
         goto error;
     }
 
-    token = json_object_get_int(tokenObj);
+    (void)jnumber_get_i32(tokenObj, &token);/* TODO: handle appropriately */
 
     char *uniqueToken = g_strdup_printf("%s.%d", sender, token);
-    if (!uniqueToken)
-    {
-        _LSErrorSet(lserror, -ENOMEM, "Out of memory");
-        goto error;
-    }
 
+    _CatalogCallCancelNotifications(catalog, uniqueToken);
     _CatalogRemoveToken(catalog, uniqueToken, true);
 
     g_free(uniqueToken);
-    if (!JSON_ERROR(object)) json_object_put(object);
+    j_release(&object);
     return true;
 
 error:
-    if (!JSON_ERROR(object)) json_object_put(object);
+    j_release(&object);
     return false;
 }
 
@@ -577,79 +647,117 @@ _CatalogGetSubList_unlocked(_Catalog *catalog, const char *key)
 }
 
 static bool
-_subscriber_down(LSHandle *sh, LSMessage *message, void *ctx)
+_CatalogAddCancelNotification(_Catalog *catalog,
+              LSCancelNotificationFunc function, void *context, LSError *lserror)
 {
-    bool connected;
-    const char *serviceName;
+    _CatalogLock(catalog);
 
-    struct json_object *connectedObj = NULL;
-    struct json_object *serviceNameObj = NULL;
-
-    LSMessageToken token = (LSMessageToken)ctx;
-
-    const char *payload = LSMessageGetPayload(message);
-    struct json_object *object = json_tokener_parse(payload);
-
-    if (JSON_ERROR(object))
+    if (!catalog->cancel_notify_list)
     {
-        g_critical("%s: Invalid JSON: %s", __func__, payload);
-        goto error;
+        catalog->cancel_notify_list = _SubscriberCancelNotificationListNew();
     }
+    g_ptr_array_add(catalog->cancel_notify_list, _SubscriberCancelNotificationNew(function, context));
 
-    if (!json_object_object_get_ex(object, "connected", &connectedObj)) goto error;
-    if (!json_object_object_get_ex(object, "serviceName", &serviceNameObj)) goto error;
-
-    connected = json_object_get_boolean(connectedObj);
-    serviceName = json_object_get_string(serviceNameObj);
-
-    if (!connected)
-    {
-        char *uniqueToken = g_strdup_printf("%s.%ld", serviceName, token);
-
-        if (uniqueToken)
-        {
-            _Subscription *subs = _SubscriptionAcquire(sh->catalog, uniqueToken);
-            if (subs)
-            {
-                _CatalogRemoveToken(sh->catalog, uniqueToken, true);
-                _SubscriptionRelease(sh->catalog, subs);
-            }
-        }
-
-        g_free(uniqueToken);
-    }
-
-error:
-    if (!JSON_ERROR(object)) json_object_put(object);
+    _CatalogUnlock(catalog);
     return true;
 }
 
+static bool
+_CatalogRemoveCancelNotification(_Catalog *catalog,
+              LSCancelNotificationFunc function, void *context, LSError *lserror)
+{
+    bool retVal = false;
+    _CatalogLock(catalog);
+
+    if (!catalog->cancel_notify_list)
+    {
+        _LSErrorSet(lserror, MSGID_LS_CATALOG_ERR, -1, "Cancel notification list not available");
+        goto cleanup;
+    }
+
+    int idx;
+    for (idx = 0; idx < catalog->cancel_notify_list->len; ++idx)
+    {
+        _SubscriberCancelNotification *scn = g_ptr_array_index(catalog->cancel_notify_list, idx);
+        if (scn->function == function && scn->context == context)
+        {
+            g_ptr_array_remove_index(catalog->cancel_notify_list, idx);
+            break;
+        }
+    }
+    retVal = true;
+
+cleanup:
+    _CatalogUnlock(catalog);
+    return retVal;
+}
+
+void _LSCatalogRemoveClientSubscriptions(_Catalog *catalog, _LSTransportClient *client)
+{
+    LS_ASSERT(catalog != NULL);
+    LS_ASSERT(_LSTransportClientGetUniqueName(client) != NULL);
+
+    const char *client_name = _LSTransportClientGetUniqueName(client);
+
+    _CatalogLock(catalog);
+
+    char *key = NULL;
+    _SubList *tokens = NULL;
+    if (!g_hash_table_lookup_extended(catalog->client_subscriptions, client_name,
+                                      (gpointer *) &key, (gpointer *) &tokens))
+    {
+        LOG_LS_DEBUG("Disconnected service had no subscriptions: %s", client->service_name);
+        _CatalogUnlock(catalog);
+        return;
+    }
+
+    g_hash_table_steal(catalog->client_subscriptions, client_name);
+    g_free(key);
+
+    _CatalogUnlock(catalog);
+
+    int i;
+    for (i = _SubListLen(tokens) - 1; i >= 0; --i)
+    {
+        const char *token = _SubListGet(tokens, i);
+
+        _Subscription *subs = _SubscriptionAcquire(catalog, token);
+        if (subs)
+        {
+            _CatalogRemoveToken(catalog, token, true);
+            _SubscriptionRelease(catalog, subs);
+        }
+    }
+
+    _SubListFree(tokens);
+}
+
 bool
-_LSSubscriptionGetJson(LSHandle *sh, struct json_object **ret_obj, LSError *lserror)
+_LSSubscriptionGetJson(LSHandle *sh, jvalue_ref *ret_obj, LSError *lserror)
 {
     _Catalog *catalog = sh->catalog;
     const char *key = NULL;
     _SubList *sub_list = NULL;
     GHashTableIter iter;
 
-    struct json_object *true_obj = NULL;
-    struct json_object *array = NULL;
-    struct json_object *cur_obj = NULL;
-    struct json_object *sub_array = NULL;
-    struct json_object *key_name = NULL;
-    struct json_object *message_obj = NULL;
-    struct json_object *sub_array_item = NULL;
-    struct json_object *unique_name_obj = NULL;
-    struct json_object *service_name_obj = NULL;
-    
-    *ret_obj = json_object_new_object();
-    if (JSON_ERROR(ret_obj)) goto error;
-       
-    true_obj = json_object_new_boolean(true);
-    if (JSON_ERROR(true_obj)) goto error;
- 
-    array = json_object_new_array();
-    if (JSON_ERROR(array)) goto error;
+    jvalue_ref true_obj = NULL;
+    jvalue_ref array = NULL;
+    jvalue_ref cur_obj = NULL;
+    jvalue_ref sub_array = NULL;
+    jvalue_ref key_name = NULL;
+    jvalue_ref message_obj = NULL;
+    jvalue_ref sub_array_item = NULL;
+    jvalue_ref unique_name_obj = NULL;
+    jvalue_ref service_name_obj = NULL;
+
+    *ret_obj = jobject_create();
+    if (*ret_obj == NULL) goto error;
+
+    true_obj = jboolean_create(true);
+    if (true_obj == NULL) goto error;
+
+    array = jarray_create(NULL);
+    if (array == NULL) goto error;
 
     /* returnValue: true,
      * subscriptions: [
@@ -663,14 +771,14 @@ _LSSubscriptionGetJson(LSHandle *sh, struct json_object **ret_obj, LSError *lser
 
     while (g_hash_table_iter_next(&iter, (gpointer)&key, (gpointer)&sub_list))
     {
-        cur_obj = json_object_new_object();
-        if (JSON_ERROR(cur_obj)) goto error;
+        cur_obj = jobject_create();
+        if (cur_obj == NULL) goto error;
 
-        sub_array = json_object_new_array();
-        if (JSON_ERROR(sub_array)) goto error;
-                
-        key_name = json_object_new_string(key);
-        if (JSON_ERROR(key_name)) goto error;
+        sub_array = jarray_create(NULL);
+        if (sub_array == NULL) goto error;
+
+        key_name = jstring_create_copy(j_cstr_to_buffer(key));
+        if (key_name == NULL) goto error;
 
         /* iterate over SubList */
         int i = 0;
@@ -685,49 +793,61 @@ _LSSubscriptionGetJson(LSHandle *sh, struct json_object **ret_obj, LSError *lser
                 _Subscription *sub = g_hash_table_lookup(catalog->token_map, token);
 
                 if (!sub) continue;
-    
+
                 LSMessage *msg = sub->message;
                 const char *unique_name = LSMessageGetSender(msg);
                 const char *service_name = LSMessageGetSenderServiceName(msg);
                 const char *message_body = LSMessageGetPayload(msg);
-                
+
                 /* create subscribers item and add to sub_array */
-                sub_array_item = json_object_new_object();
-                if (JSON_ERROR(sub_array_item)) goto error;
+                sub_array_item = jobject_create();
+                if (sub_array_item == NULL) goto error;
 
-                unique_name_obj = unique_name ? json_object_new_string(unique_name)
-                                              : json_object_new_string("");
-                if (JSON_ERROR(unique_name_obj)) goto error;
+                unique_name_obj = unique_name ? jstring_create_copy(j_cstr_to_buffer(unique_name))
+                                              : jstring_empty();
+                if (unique_name_obj == NULL) goto error;
 
-                service_name_obj = service_name ? json_object_new_string(service_name)
-                                                : json_object_new_string("");
-                if (JSON_ERROR(service_name_obj)) goto error;
-                
-                message_obj = message_body ? json_object_new_string(message_body)
-                                                : json_object_new_string("");                                                
-                if (JSON_ERROR(message_obj)) goto error;
+                service_name_obj = service_name ? jstring_create_copy(j_cstr_to_buffer(service_name))
+                                                : jstring_empty();
+                if (service_name_obj == NULL) goto error;
 
-                json_object_object_add(sub_array_item, "unique_name", unique_name_obj);
-                json_object_object_add(sub_array_item, "service_name", service_name_obj);
-                json_object_object_add(sub_array_item, "subscription_message", message_obj);
-                json_object_array_add(sub_array, sub_array_item);
-               
+                message_obj = message_body ? jstring_create_copy(j_cstr_to_buffer(message_body))
+                                                : jstring_empty();
+                if (message_obj == NULL) goto error;
+
+                jobject_put(sub_array_item,
+                            J_CSTR_TO_JVAL("unique_name"),
+                            unique_name_obj);
+                jobject_put(sub_array_item,
+                            J_CSTR_TO_JVAL("service_name"),
+                            service_name_obj);
+                jobject_put(sub_array_item,
+                            J_CSTR_TO_JVAL("subscription_message"),
+                            message_obj);
+                jarray_append(sub_array, sub_array_item);
+
                 sub_array_item = NULL;
                 unique_name_obj = NULL;
                 service_name_obj = NULL;
                 message_obj = NULL;
             }
         }
-        json_object_object_add(cur_obj, "key", key_name);
-        json_object_object_add(cur_obj, "subscribers", sub_array);
-        json_object_array_add(array, cur_obj);
-        key_name = NULL; 
+        jobject_put(cur_obj, J_CSTR_TO_JVAL("key"),
+                    key_name);
+        jobject_put(cur_obj,
+                    J_CSTR_TO_JVAL("subscribers"),
+                    sub_array);
+        jarray_append(array, cur_obj);
+        key_name = NULL;
         cur_obj = NULL;
         sub_array = NULL;
     }
-    
-    json_object_object_add(*ret_obj, "returnValue", true_obj);
-    json_object_object_add(*ret_obj, "subscriptions", array);
+
+    jobject_put(*ret_obj,
+                J_CSTR_TO_JVAL("returnValue"),
+                true_obj);
+    jobject_put(*ret_obj,
+                J_CSTR_TO_JVAL("subscriptions"), array);
 
     _CatalogUnlock(catalog);
 
@@ -735,19 +855,19 @@ _LSSubscriptionGetJson(LSHandle *sh, struct json_object **ret_obj, LSError *lser
 
 error:
     _CatalogUnlock(catalog);
-    
-    if (!JSON_ERROR(*ret_obj)) json_object_put(*ret_obj);
-    if (!JSON_ERROR(true_obj)) json_object_put(true_obj);
-    if (!JSON_ERROR(array)) json_object_put(array);
-    
-    if (!JSON_ERROR(cur_obj)) json_object_put(cur_obj);
-    if (!JSON_ERROR(sub_array)) json_object_put(sub_array);
-    if (!JSON_ERROR(key_name)) json_object_put(key_name);
- 
-    if (!JSON_ERROR(sub_array_item)) json_object_put(sub_array_item); 
-    if (!JSON_ERROR(unique_name_obj)) json_object_put(unique_name_obj); 
-    if (!JSON_ERROR(service_name_obj)) json_object_put(service_name_obj); 
-    
+
+    j_release(ret_obj);
+    j_release(&true_obj);
+    j_release(&array);
+
+    j_release(&cur_obj);
+    j_release(&sub_array);
+    j_release(&key_name);
+
+    j_release(&sub_array_item);
+    j_release(&unique_name_obj);
+    j_release(&service_name_obj);
+
     return false;
 }
 
@@ -759,17 +879,17 @@ error:
  * @{
  */
 
-/** 
+/**
 * @brief Register a callback to be called when subscription cancelled.
 *
 *  Callback may be called when client cancels subscription via LSCallCancel()
 *  or if the client drops off the bus.
-* 
-* @param  sh 
-* @param  cancelFunction 
-* @param  ctx 
-* @param  lserror 
-* 
+*
+* @param  sh
+* @param  cancelFunction
+* @param  ctx
+* @param  lserror
+*
 * @retval
 */
 bool
@@ -783,14 +903,61 @@ LSSubscriptionSetCancelFunction(LSHandle *sh, LSFilterFunc cancelFunction,
     return true;
 }
 
-/** 
+/**
+* @brief Register a callback to be called when remote service cancelled call.
+*
+*  Callback called when client cancels call via LSCallCancel().
+*  Callback called independently if subscriber has been added to subscriptions catalog or not.
+*  Used when we want to get cancel notification without adding subscriber into catalog.
+*  Subscription message unique token passed to function callback together with user-defined context.
+*  User can register multiple callback's, which called in order of registration/removing.
+*
+* @param  sh
+* @param  cancelNotifyFunction
+* @param  ctx
+* @param  lserror
+*
+* @retval
+*/
+bool LSCallCancelNotificationAdd(LSHandle *sh,
+                                LSCancelNotificationFunc cancelNotifyFunction,
+                                void *ctx, LSError *lserror)
+{
+    LSHANDLE_VALIDATE(sh);
+
+    return _CatalogAddCancelNotification(sh->catalog, cancelNotifyFunction, ctx, lserror);
+}
+
+/**
+* @brief Remove cancellation function callback.
+*
+*  Function callback removed from list not changing relative order of other elements.
+*  Both function callback and context should match to remove.
+*
+* @param  sh
+* @param  cancelNotifyFunction
+* @param  ctx
+* @param  lserror
+*
+* @retval
+*/
+bool LSCallCancelNotificationRemove(LSHandle *sh,
+                                LSCancelNotificationFunc cancelNotifyFunction,
+                                void *ctx, LSError *lserror)
+{
+    LSHANDLE_VALIDATE(sh);
+
+    return _CatalogRemoveCancelNotification(sh->catalog, cancelNotifyFunction, ctx, lserror);
+}
+
+/**
 * @brief Add a subscription to a list associated with 'key'.
-* 
-* @param  sh 
-* @param  key 
-* @param  message 
-* @param  lserror 
-* 
+*
+* @param  sh
+* @param  key
+* @param  message
+* @param  lserror
+*
 * @retval
 */
 bool
@@ -802,15 +969,15 @@ LSSubscriptionAdd(LSHandle *sh, const char *key,
     return _CatalogAdd(sh->catalog, key, message, lserror);
 }
 
-/** 
+/**
 * @brief Acquire an iterator to iterate through the subscription
 *        for 'key'.
-* 
-* @param  sh 
-* @param  key 
-* @param  *ret_iter 
-* @param  lserror 
-* 
+*
+* @param  sh
+* @param  key
+* @param  *ret_iter
+* @param  lserror
+*
 * @retval
 */
 bool
@@ -821,11 +988,6 @@ LSSubscriptionAcquire(LSHandle *sh, const char *key,
 
     _Catalog *catalog = sh->catalog;
     LSSubscriptionIter *iter = g_new0(LSSubscriptionIter, 1);
-    if (!iter)
-    {
-        _LSErrorSet(lserror, -ENOMEM, "Out of memory");
-        return false;
-    }
 
     _CatalogLock(catalog);
     _SubList *tokens = _CatalogGetSubList_unlocked(catalog, key);
@@ -844,10 +1006,10 @@ LSSubscriptionAcquire(LSHandle *sh, const char *key,
     return true;
 }
 
-/** 
+/**
 * @brief Frees up resources for LSSubscriptionIter.
-* 
-* @param  iter 
+*
+* @param  iter
 */
 void
 LSSubscriptionRelease(LSSubscriptionIter *iter)
@@ -866,11 +1028,11 @@ LSSubscriptionRelease(LSSubscriptionIter *iter)
     g_free(iter);
 }
 
-/** 
+/**
 * @brief Returns whether there is a next item in subscription.
-* 
-* @param  iter 
-* 
+*
+* @param  iter
+*
 * @retval
 */
 bool
@@ -884,11 +1046,11 @@ LSSubscriptionHasNext(LSSubscriptionIter *iter)
     return iter->index+1 < _SubListLen(iter->tokens);
 }
 
-/** 
+/**
 * @brief Obtain the next subscription message.
-* 
-* @param  iter 
-* 
+*
+* @param  iter
+*
 * @retval
 */
 LSMessage *
@@ -917,10 +1079,10 @@ LSSubscriptionNext(LSSubscriptionIter *iter)
     return message;
 }
 
-/** 
+/**
 * @brief Remove the last subscription returned by LSSubscriptionNext().
-* 
-* @param  iter 
+*
+* @param  iter
 */
 void
 LSSubscriptionRemove(LSSubscriptionIter *iter)
@@ -932,14 +1094,14 @@ LSSubscriptionRemove(LSSubscriptionIter *iter)
     }
 }
 
-/** 
+/**
 * @brief Sends a message to subscription list with name 'key'.
-* 
-* @param  sh 
-* @param  key 
-* @param  payload 
-* @param  lserror 
-* 
+*
+* @param  sh
+* @param  key
+* @param  payload
+* @param  lserror
+*
 * @retval
 */
 bool
@@ -979,18 +1141,18 @@ cleanup:
     return retVal;
 }
 
-/** 
+/**
 * @brief Post a notification to all subscribers with name 'key'.
 *
 * This is equivalent to:
 * LSSubscriptionReply(public_bus, ...)
 * LSSubscriptionReply(private_bus, ...)
-* 
-* @param  psh 
-* @param  key 
-* @param  payload 
-* @param  lserror 
-* 
+*
+* @param  psh
+* @param  key
+* @param  payload
+* @param  lserror
+*
 * @retval
 */
 bool
@@ -1010,38 +1172,43 @@ LSSubscriptionRespond(LSPalmService *psh, const char *key,
     return true;
 }
 
-/** 
+/**
 * @brief If message contains subscribe:true, add the message
          to subscription list using the default key '/category/method'.
 *
 *        This is equivalent to LSSubscriptionAdd(sh, key, message, lserror)
 *        where the key is LSMessageGetKind(message).
-* 
-* @param  sh 
-* @param  message 
-* @param  subscribed 
-* @param  lserror 
-* 
+*
+* @param  sh
+* @param  message
+* @param  subscribed
+* @param  lserror
+*
 * @retval
 */
 bool
-LSSubscriptionProcess (LSHandle *sh, LSMessage *message, bool *subscribed, 
+LSSubscriptionProcess (LSHandle *sh, LSMessage *message, bool *subscribed,
                         LSError *lserror)
 {
+    JSchemaInfo schemaInfo;
+    jschema_info_init(&schemaInfo, jschema_all(), NULL, NULL);
+
     bool retVal = false;
     bool subscribePayload = false;
-    struct json_object *subObj = NULL;
+    jvalue_ref subObj = NULL;
 
     const char *payload = LSMessageGetPayload(message);
-    struct json_object *object = json_tokener_parse(payload);
+    jvalue_ref object = jdom_parse(j_cstr_to_buffer(payload), DOMOPT_NOOPT,
+                                   &schemaInfo);
 
-    if (JSON_ERROR(object))
+    if (jis_null(object))
     {
-        _LSErrorSet(lserror, -1, "Unable to parse JSON: %s", payload);
+        _LSErrorSet(lserror, MSGID_LS_INVALID_JSON, -1, "Unable to parse JSON: %s", payload);
         goto exit;
     }
 
-    if (!json_object_object_get_ex(object, "subscribe", &subObj))
+    if (!jobject_get_exists(object, J_CSTR_TO_BUF("subscribe"), &subObj) ||
+        subObj == NULL || !jis_boolean(subObj))
     {
         subscribePayload = false;
         /* FIXME: I think retVal should be false, but I don't know if anyone
@@ -1051,7 +1218,7 @@ LSSubscriptionProcess (LSHandle *sh, LSMessage *message, bool *subscribed,
     }
     else
     {
-        subscribePayload = json_object_get_boolean(subObj);
+        (void)jboolean_get(subObj, &subscribePayload);/* TODO: handle appropriately */
         retVal = true;
     }
 
@@ -1071,24 +1238,24 @@ LSSubscriptionProcess (LSHandle *sh, LSMessage *message, bool *subscribed,
     }
 
 exit:
-    if (!JSON_ERROR(object)) json_object_put(object);
+    j_release(&object);
 
     return retVal;
 }
 
-/** 
+/**
 * @brief Posts a message to all in subscription '/category/method'.
 *        This is equivalent to:
 *        LSSubscriptionReply(sh, '/category/method', payload, lserror)
 *
 * @deprecated Please use LSSubscriptionReply() instead.
-* 
-* @param  sh 
-* @param  category 
-* @param  method 
-* @param  payload 
-* @param  lserror 
-* 
+*
+* @param  sh
+* @param  category
+* @param  method
+* @param  payload
+* @param  lserror
+*
 * @retval
 */
 bool
@@ -1100,11 +1267,6 @@ LSSubscriptionPost(LSHandle *sh, const char *category,
 
     bool retVal = false;
     char *key = _LSMessageGetKindHelper(category, method);
-    if (!key)
-    {
-        _LSErrorSet(lserror, -ENOMEM, "Out of memory");
-        return false;
-    }
 
     retVal = LSSubscriptionReply(sh, key, payload, lserror);
 

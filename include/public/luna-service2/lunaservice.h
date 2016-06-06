@@ -1,6 +1,6 @@
 /* @@@LICENSE
 *
-*      Copyright (c) 2008-2012 Hewlett-Packard Development Company, L.P.
+*      Copyright (c) 2008-2014 LG Electronics, Inc.
 *
 * Licensed under the Apache License, Version 2.0 (the "License");
 * you may not use this file except in compliance with the License.
@@ -29,6 +29,7 @@
 #endif
 
 #include <luna-service2/lunaservice-errors.h>
+#include <PmLogLib.h>
 
 #ifndef _LUNASERVICE_H_
 #define _LUNASERVICE_H_
@@ -40,77 +41,21 @@ extern "C" {
 #endif
 
 /**
- * @page
- * @addtogroup LunaServiceExample
- *
- * <h1>LunaService</h1>
- *
- * <em>Example client usage:</em>
- *
-@code
-bool retVal;
-LSError lserror;
-LSErrorInit(&lserror);
+@page
+@addtogroup LunaServiceExample
 
-LSHandle *serviceHandle;
-retVal = LSRegister(NULL, &serviceHandle, &lserror);
-if (!retVal) goto error;
+<h1>LunaService</h1>
 
-retVal = LSCall(serviceHandle, "luna://com.palm.contacts/category/listContacts",
-        "{ \"json payload\" }", listContactsHandler, user_data, &token, &lserror);
-if (!retVal) goto error;
+<em>Example client usage:</em>
 
-LSGmainAttach(serviceHandle, gmainLoop, &lserror); 
-g_main_loop_run(gmainLoop);
-@endcode
+@snippet test_example.c client call
 
 
 <em>Example service usage.</em>
 
-@code
-// callback
-static bool
-listContacts(LSHandle *sh, LSMessage *message)
-{
-     LSMessage *reply = NULL;
+@snippet test_example.c method implementation
 
-     bool retVal;
-     LSError lserror;
-     LSErrorInit(&lserror);
-
-     retVal = LSMessageReply(sh, message, "{ JSON REPLY PAYLOAD }", &lserror);
-     if (!retVal)
-     {
-         LSErrorPrint(&lserror, stderr);
-         LSErrorFree(&lserror);
-     }
-
-     return retVal;
-}
-
-static LSMethod ipcMethods[] = {
-   { "listContacts", listContacts },
-   { },
-};
-...
-
-// Service registration thread
-bool retVal;
-LSError lserror;
-LSErrorInit(&lserror);
-
-LSHandle *serviceHandle;
-retVal = LSRegister("com.palm.contacts", &serviceHandle, &lserror);
-if (!retVal) goto error;
-
-retVal = LSRegisterCategory(serviceHandle, "/category",  ipcMethods, NULL, NULL, &lserror);
-if (!retVal) goto error;
-
-retVal = LSGmainAttach(serviceHandle, gmainLoop, &lserror); 
-if (!retVal) goto error;
-
-g_main_loop_run(gmainLoop);
-@endcode
+@snippet test_example.c service registration
 
 <em>Storing a message for replying in another thread.</em>
 @code
@@ -143,89 +88,11 @@ SomeOtherThread()
     ...
     if (!LSMessageReply(sh, message, "{PAYLOAD IN JSON}", lserror))
     {
-        LSErrorPrint(&lserror);
+        LSErrorLog(loggingCtx, msgId, &lserror);
         LSErrorFree(&lserror);
     }
 
     ....
-}
-
-@endcode
-
-<em>Example run loop via select.  See LSCustomSelectExample() for
-latest example.</em>
-
-@code
-
-bool retVal;
-
-do
-{
-    int nfd = -1;
-    fd_set rdfds, wrfds, exfds;
-
-    FD_ZERO(&rdfds);
-    FD_ZERO(&wrfds);
-    FD_ZERO(&exfds);
-
-    retVal = LSCustomGetFds(sh, &nfd, &rdfds, &wrfds, &exfds, lserror);
-    if (!retVal) return -1;
-
-    int ret = select(nfd, &rdfds, &wrfds, &exfds, NULL);
-    if (ret < 0) 
-    {
-        perror("select");
-        break;
-    }
-
-    // Pull incoming bytes off socket and push outgoing bytes onto it.
-    retVal = LSCustomSendRecvBytes(sh, &rdfds, &wrfds, &exfds, lserror);
-    if (!retVal)
-    {
-        break;
-    }
-
-    // Transmit byte and Dispatch incomming at most 1 message
-    retVal = LSCustomDispatchMessage(sh, NULL, lserror); 
-    if (!retVal)
-    {
-        break;
-    }
-
-} while (true);
-
-@endcode
-
-<em>Example run loop via select if you want to handle messages directly.</em>
-
-@code
-
-while (serviceRunning)
-{
-    fd_set rdfds, wrfds, exfds;
-    FD_ZERO(&rdfds);
-    FD_ZERO(&wrfds);
-    FD_ZERO(&exfds);
-
-    LSGetFd(serviceHandle, &maxfd, &rdfds, &wrfds, &exfds, &lserror);
-
-    ret = select(maxfd, &rdfds, &wrfds, &exfds, NULL);
-    if (ret > 0)
-    {
-        LSMessage *message;
-        char *reply = NULL;
-
-        LSMessageFetch(serviceHandle, &message, &lserror);
-
-        if (strcmp(LSMessageGetName(message), "listContacts"))
-        {
-            char *payload;
-            payload = LSMessageGetPayload(message);
-            ...
-            reply = "{ JSON PAYLOAD }";
-            LSMessageReply(serviceHandle, message, reply, &lserror);
-        }
-    }
 }
 
 @endcode
@@ -258,9 +125,9 @@ typedef unsigned long LSMessageToken;
  */
 #define LSMESSAGE_TOKEN_INVALID 0
 
-/** 
+/**
 * @brief Error object which contains information about first
-*        error since it was initialized via LSErrorInit. 
+*        error since it was initialized via LSErrorInit.
 */
 struct LSError {
     int   error_code;  /**< public error code */
@@ -276,17 +143,17 @@ struct LSError {
 
 typedef struct LSError  LSError;
 
-/** 
+/**
 * @brief Handle to service.
 */
 typedef struct LSHandle LSHandle;
 
-/** 
+/**
 * @brief Handle to public service.
 */
 typedef struct LSPalmService LSPalmService;
 
-/** 
+/**
 * @brief Message object.
 */
 typedef struct LSMessage        LSMessage;
@@ -295,13 +162,13 @@ typedef struct LSMessage        LSMessage;
  * Table registration of callbacks.
  */
 
-/** 
+/**
 * @brief Type for method callbacks.
-* 
-* @param  *LSMethodFunction 
-* @param  sh 
-* @param  msg 
-* 
+*
+* @param  *LSMethodFunction
+* @param  sh
+* @param  msg
+*
 * @retval true if message successfully processed.
 * @retval false if some error occurred and you would like the callback to
 *               be called again later.
@@ -309,33 +176,54 @@ typedef struct LSMessage        LSMessage;
 typedef bool (*LSMethodFunction) (LSHandle *sh, LSMessage *msg, void *category_context);
 
 
-/** 
+/**
 * @brief Type for property get callback.
-* 
-* @param  *LSPropertyGetFunction 
-* @param  sh 
-* @param  msg 
-* 
+*
+* @param  *LSPropertyGetFunction
+* @param  sh
+* @param  msg
+*
 * @retval Same as LSMethodFunction()
 */
 typedef bool (*LSPropertyGetFunction) (LSHandle *sh, LSMessage *msg, void *category_context);
 
-/** 
+/**
 * @brief Type for property set callback.
-* 
-* @param  *LSPropertySetFunction 
-* @param  sh 
-* @param  msg 
-* 
+*
+* @param  *LSPropertySetFunction
+* @param  sh
+* @param  msg
+*
 * @retval Same as LSMethodFunction()
 */
 typedef bool (*LSPropertySetFunction) (LSHandle *sh, LSMessage *msg, void *category_context);
 
-/** 
+/**
 * @brief Method flags
 */
 typedef enum {
 	LUNA_METHOD_FLAG_DEPRECATED = (1 << 0),
+
+	/**
+	 * Automatic params validation according to schema.
+	 *
+	 * @note you should provide validation schema through
+	 *       LSCategorySetDescription
+	 */
+	LUNA_METHOD_FLAG_VALIDATE_IN = (1 << 1),
+
+	/**
+	 * Constant to reprsent method with no flags turned on
+	 */
+	LUNA_METHOD_FLAGS_NONE = 0,
+
+	/**
+	 * Mask that covers all valid method flags. Anything outside treated as an
+	 * error.
+	 */
+	LUNA_METHOD_FLAGS_ALL = LUNA_METHOD_FLAG_DEPRECATED
+	                      | LUNA_METHOD_FLAG_VALIDATE_IN
+	                      ,
 } LSMethodFlags;
 
 /**
@@ -343,6 +231,11 @@ typedef enum {
  */
 typedef enum {
 	LUNA_SIGNAL_FLAG_DEPRECATED = (1 << 0),
+
+	/**
+	 * Constant to reprsent method with no flags turned on
+	 */
+	LUNA_SIGNAL_FLAGS_NONE = 0,
 } LSSignalFlags;
 
 /**
@@ -350,6 +243,11 @@ typedef enum {
  */
 typedef enum {
 	LUNA_PROPERTY_FLAG_DEPRECATED = (1 << 0),
+
+	/**
+	 * Constant to reprsent property with no flags turned on
+	 */
+	LUNA_PROPERTY_FLAGS_NONE = 0,
 } LSPropertyFlags;
 
 typedef struct {
@@ -386,6 +284,7 @@ void LSErrorFree(LSError *error);
 bool LSErrorIsSet(LSError *lserror);
 
 void LSErrorPrint(LSError *lserror, FILE *out);
+void LSErrorLog(PmLogContext context, const char *message_id, LSError *lserror);
 
 /* @} END OF LunaServiceError */
 
@@ -493,10 +392,13 @@ bool LSMessageReply(LSHandle *sh, LSMessage *lsmsg, const char *replyPayload,
 
 /* Mainloop integration functions. */
 
-bool LSGmainAttach(LSHandle *sh, GMainLoop *mainLoop, LSError *lserror);
+GMainContext * LSGmainGetContext(LSHandle *sh, LSError *lserror);
 
-bool LSGmainAttachPalmService(LSPalmService *psh,
-                           GMainLoop *mainLoop, LSError *lserror);
+bool LSGmainAttach(LSHandle *sh, GMainLoop *mainLoop, LSError *lserror);
+bool LSGmainContextAttach(LSHandle *sh, GMainContext *mainContext, LSError *lserror);
+
+bool LSGmainAttachPalmService(LSPalmService *psh, GMainLoop *mainLoop, LSError *lserror);
+bool LSGmainContextAttachPalmService(LSPalmService *psh, GMainContext *mainLoop, LSError *lserror);
 
 bool LSGmainDetach(LSHandle *sh, LSError *lserror);
 
@@ -512,29 +414,50 @@ bool LSGmainSetPriorityPalmService(LSPalmService *psh, int priority, LSError *ls
  */
 
 
-/** 
+/**
 * @brief Function callback to be called when serviceName connects/disconnects.
-* 
+*
 * @param  sh             service handle
 * @param  serviceName    name of service that was brought up/down.
 * @param  connected      service was brought up if true.
-* 
+*
 * @retval
 */
 typedef bool (*LSServerStatusFunc) (LSHandle *sh, const char *serviceName,
                                   bool connected,
                                   void *ctx);
 
-/** 
+/**
 * @brief Callback function called on incomming message.
-* 
+*
 * @param  sh             service handle
 * @param  reply          reply message
-* @param  void *         context 
-* 
+* @param  void *         context
+*
 * @retval true if message is handled.
 */
 typedef bool (*LSFilterFunc) (LSHandle *sh, LSMessage *reply, void *ctx);
+
+/**
+* @brief Function callback to be called when service cancelled call.
+*
+* @param  sh             service handle
+* @param  uniqueToken    cancelled message unique token.
+* @param  ctx            context for function callback.
+*
+* @retval
+*/
+typedef bool (*LSCancelNotificationFunc) (LSHandle *sh,
+                                  const char *uniqueToken,
+                                  void *ctx);
+
+bool LSCallCancelNotificationAdd(LSHandle *sh,
+                                LSCancelNotificationFunc cancelNotifyFunction,
+                                void *ctx, LSError *lserror);
+
+bool LSCallCancelNotificationRemove(LSHandle *sh,
+                                LSCancelNotificationFunc cancelNotifyFunction,
+                                void *ctx, LSError *lserror);
 
 bool LSCall(LSHandle *sh, const char *uri, const char *payload,
        LSFilterFunc callback, void *user_data,
@@ -557,12 +480,17 @@ bool LSCallFromApplicationOneReply(
 
 bool LSCallCancel(LSHandle *sh, LSMessageToken token, LSError *lserror);
 
+bool LSCallSetTimeout(
+       LSHandle *sh, LSMessageToken token,
+       int timeout_ms, LSError *lserror);
+
 /* @} END OF LunaServiceClient */
 
 /**
  * @addtogroup LunaServiceSubscription
  * @{
  */
+
 typedef struct LSSubscriptionIter LSSubscriptionIter;
 
 bool LSSubscriptionProcess (LSHandle *sh, LSMessage *message, bool *subscribed,
@@ -610,7 +538,7 @@ bool LSSignalSendNoTypecheck(LSHandle *sh,
             const char *uri, const char *payload, LSError *lserror);
 
 bool LSSignalCall(LSHandle *sh,
-         const char *category, const char *methodName, 
+         const char *category, const char *methodName,
          LSFilterFunc filterFunc, void *ctx,
          LSMessageToken *ret_token,
          LSError *lserror);
@@ -619,8 +547,14 @@ bool LSSignalCallCancel(LSHandle *sh, LSMessageToken token, LSError *lserror);
 
 
 bool LSRegisterServerStatus(LSHandle *sh, const char *serviceName,
-              LSServerStatusFunc func, void *ctx, LSError *lserror);
+              LSServerStatusFunc func, void *ctx, LSError *lserror)
+    __attribute__((deprecated));
 
+bool LSRegisterServerStatusEx(LSHandle *sh, const char *serviceName,
+                              LSServerStatusFunc func, void *ctxt,
+                              void **cookie, LSError *lserror);
+
+bool LSCancelServerStatus(LSHandle *sh, void *cookie, LSError *lserror);
 
 /* @} END OF LunaServiceSignals */
 

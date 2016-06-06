@@ -1,6 +1,6 @@
 /* @@@LICENSE
 *
-*      Copyright (c) 2008-2012 Hewlett-Packard Development Company, L.P.
+*      Copyright (c) 2008-2013 LG Electronics, Inc.
 *
 * Licensed under the Apache License, Version 2.0 (the "License");
 * you may not use this file except in compliance with the License.
@@ -34,10 +34,10 @@
  * @{
  */
 
-/** 
+/**
  *******************************************************************************
  * @brief Allocate a new outgoing queue.
- * 
+ *
  * @retval  queue on success
  * @retval  NULL on failure
  *******************************************************************************
@@ -46,19 +46,35 @@ _LSTransportOutgoing*
 _LSTransportOutgoingNew(void)
 {
     _LSTransportOutgoing *outgoing = g_slice_new0(_LSTransportOutgoing);
-    if (outgoing)
+
+    if (pthread_mutex_init(&outgoing->lock, NULL))
     {
-        pthread_mutex_init(&outgoing->lock, NULL);
-        outgoing->queue = g_queue_new();
-        outgoing->serial = _LSTransportSerialNew();
+        LOG_LS_ERROR(MSGID_LS_MUTEX_ERR, 0, "Could not initialize mutex");
+        goto error_before_mutex;
     }
+
+    outgoing->queue = g_queue_new();
+    outgoing->serial = _LSTransportSerialNew();
+    if (!outgoing->serial)
+    {
+        LOG_LS_ERROR(MSGID_LS_SERIAL_ERROR, 0, "Could not initialize serial map");
+        goto error;
+    }
+
     return outgoing;
+
+error:
+    pthread_mutex_destroy(&outgoing->lock);
+
+error_before_mutex:
+    _LSTransportOutgoingFree(outgoing);
+    return NULL;
 }
 
-/** 
+/**
  *******************************************************************************
  * @brief Free an outgoing queue.
- * 
+ *
  * @param  outgoing     IN  outgoing queue
  *******************************************************************************
  */
@@ -75,13 +91,13 @@ _LSTransportOutgoingFree(_LSTransportOutgoing *outgoing)
         _LSTransportMessageUnref(message);
     }
     g_queue_free(outgoing->queue);
-   
+
     _LSTransportSerialFree(outgoing->serial);
 
 #ifdef MEMCHECK
     memset(outgoing, 0xFF, sizeof(_LSTransportOutgoing));
 #endif
-    
+
     g_slice_free(_LSTransportOutgoing, outgoing);
 }
 

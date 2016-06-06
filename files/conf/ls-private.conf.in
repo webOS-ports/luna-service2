@@ -1,6 +1,6 @@
 # @@@LICENSE
 #
-#      Copyright (c) 2008-2012 Hewlett-Packard Development Company, L.P.
+#      Copyright (c) 2008-2013 LG Electronics, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -28,14 +28,19 @@ FailureMode=@CONF_FAILURE_MODE@
 
 [Dynamic Services]
 Directories=@CONF_DYNAMIC_SERVICES_DIRECTORIES_PRV@
+VolatileDirectories=@CONF_DYNAMIC_SERVICES_VOLATILE_DIRECTORIES_PRV@
 ExecPrefix=@CONF_DYNAMIC_SERVICES_EXEC_PREFIX@
 LaunchTimeout=@CONF_DYNAMIC_SERVICES_LAUNCH_TIMEOUT@
 
 [Security]
 Enabled=@CONF_SECURITY_ENABLED@
 Directories=@CONF_SECURITY_DIRECTORIES_PRV@
+VolatileDirectories=@CONF_SECURITY_VOLATILE_DIRECTORIES_PRV@
 MonitorExePath=@CONF_SECURITY_MONITOR_EXE_PATH@
+MonitorPubExePath=@CONF_SECURITY_MONITOR_PUB_EXE_PATH@
 SysMgrExePath=@CONF_SECURITY_SYSMGR_EXE_PATH@
+WebAppMgrExePath=@CONF_SECURITY_WEBAPPMGR_EXE_PATH@
+WebAppMgr2ExePath=@CONF_SECURITY_WEBAPPMGR2_EXE_PATH@
 JsServiceExePath=@CONF_SECURITY_JS_SERVICE_EXE_PATH@
 MojoAppExePath=@CONF_SECURITY_MOJO_APP_EXE_PATH@
 MojoAppsAllowAllOutboundByDefault=@CONF_SECURITY_MOJO_APPS_ALLOW_OUTBOUND_BY_DEFAULT@

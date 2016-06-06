@@ -1,6 +1,6 @@
 /* @@@LICENSE
 *
-*      Copyright (c) 2008-2012 Hewlett-Packard Development Company, L.P.
+*      Copyright (c) 2008-2014 LG Electronics, Inc.
 *
 * Licensed under the Apache License, Version 2.0 (the "License");
 * you may not use this file except in compliance with the License.
@@ -27,17 +27,19 @@
 #include <errno.h>
 #include <glib.h>
 
+#include "log.h"
+
 /**
  * @addtogroup LunaServiceUtils
  * @{
  */
 
-/** 
+/**
  *******************************************************************************
  * @brief Set a lock on the specified file
- * 
+ *
  * @param  fd   file descriptor
- * 
+ *
  * @retval  true on success
  * @retval  false on failure
  *******************************************************************************
@@ -45,7 +47,7 @@
 bool
 LSLockFile(int fd)
 {
-    struct flock fileLock = 
+    struct flock fileLock =
     {
         .l_type = F_WRLCK,
         .l_whence = SEEK_SET,
@@ -66,13 +68,13 @@ LSLockFile(int fd)
     return true;
 }
 
-/** 
+/**
  *******************************************************************************
  * @brief Check to see if an instance of this executable is running.
- * 
+ *
  * @param  pid_dir          IN   directory where the pid file should reside
  * @param  pid_file_name    IN   name of the pid (lock) file
- * 
+ *
  * @retval true if the executable is running (matching pid file found)
  * @retval false if the executable is not running
  *******************************************************************************
@@ -88,17 +90,14 @@ LSIsRunning(const char *pid_dir, const char *pid_file_name)
 
     lock_file = g_strconcat(pid_dir, "/", pid_file_name, NULL);
 
-    if (!lock_file)
-    {
-        g_critical("OOM when constructing pid path");
-        exit(EXIT_FAILURE);
-    }
-
     fd = open(lock_file, O_RDWR | O_CREAT, 0644);
 
     if (fd == -1)
     {
-        g_critical("Error opening lock file: \"%s\"", strerror(errno));
+        LOG_LS_ERROR(MSGID_LS_LOCK_FILE_ERR, 2,
+                     PMLOGKFV("ERROR_CODE", "%d", errno),
+                     PMLOGKS("ERROR", strerror(errno)),
+                     "Error opening lock file");
         exit(EXIT_FAILURE);
     }
 
@@ -106,7 +105,7 @@ LSIsRunning(const char *pid_dir, const char *pid_file_name)
     {
         close(fd);
         g_free(lock_file);
-        return true; 
+        return true;
     }
 
     snprintf(buf, sizeof(buf), "%ld\n", (long)getpid());
@@ -116,19 +115,25 @@ LSIsRunning(const char *pid_dir, const char *pid_file_name)
 
     if (write_ret != len)
     {
-        /* continue, but display a warning */
-        g_critical("Did not write complete buffer to lock file: \"%s\"", strerror(errno));
+        /* continue, but display an error */
+        LOG_LS_ERROR(MSGID_LS_LOCK_FILE_ERR, 2,
+                     PMLOGKFV("ERROR_CODE", "%d", errno),
+                     PMLOGKS("ERROR", strerror(errno)),
+                     "Did not write complete buffer to lock file");
     }
-    
+
     if (ftruncate(fd, len) == -1)
     {
-        /* continue, but display a warning */
-        g_critical("Error while truncating lock file: \"%s\"", strerror(errno));
+        /* continue, but display an error */
+        LOG_LS_ERROR(MSGID_LS_LOCK_FILE_ERR, 2,
+                     PMLOGKFV("ERROR_CODE", "%d", errno),
+                     PMLOGKS("ERROR", strerror(errno)),
+                     "Error while truncating lock file");
     }
-    
+
     g_free(lock_file);
 
-    return false; 
+    return false;
 }
 
 /* @} END OF LunaServiceUtils */

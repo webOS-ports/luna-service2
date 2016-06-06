@@ -1,6 +1,6 @@
 /* @@@LICENSE
 *
-*      Copyright (c) 2010-2012 Hewlett-Packard Development Company, L.P.
+*      Copyright (c) 2010-2014 LG Electronics, Inc.
 *
 * Licensed under the Apache License, Version 2.0 (the "License");
 * you may not use this file except in compliance with the License.
@@ -56,7 +56,7 @@ struct _LSTransportShm
 static pthread_mutex_t shm_map_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static _LSTransportShmData *shm_map_addr_pub = NULL;   /**< singleton mapping of
-                                                         the shared memory 
+                                                         the shared memory
                                                          region for the process */
 
 static _LSTransportShmData *shm_map_addr_prv = NULL;   /**< singleton mapping of
@@ -71,7 +71,7 @@ _LSTransportShmInitOnce(bool public_bus, LSError *lserror)
     _LSTransportShmData *map = NULL;
     int fd = -1;
     int ret = 0;
-    
+
     if (public_bus)
     {
         shm_name = SHM_NAME_PUB;
@@ -85,7 +85,7 @@ _LSTransportShmInitOnce(bool public_bus, LSError *lserror)
 
     if (public_bus)
     {
-        map = shm_map_addr_pub; 
+        map = shm_map_addr_pub;
     }
     else
     {
@@ -106,18 +106,18 @@ _LSTransportShmInitOnce(bool public_bus, LSError *lserror)
         if (errno == EEXIST)
         {
             shm_needs_init = false;
-            
+
             fd = shm_open(shm_name, O_RDWR, SHM_MODE);
 
             if (fd == -1)
             {
-                _LSErrorSetFromErrno(lserror, errno);
+                _LSErrorSetFromErrno(lserror, MSGID_LS_SHARED_MEMORY_ERR, errno);
                 goto error;
-            } 
+            }
         }
         else
         {
-            _LSErrorSetFromErrno(lserror, errno);
+            _LSErrorSetFromErrno(lserror, MSGID_LS_SHARED_MEMORY_ERR, errno);
             goto error;
         }
     }
@@ -133,7 +133,7 @@ _LSTransportShmInitOnce(bool public_bus, LSError *lserror)
 
         if (ret == -1)
         {
-            _LSErrorSetFromErrno(lserror, errno);
+            _LSErrorSetFromErrno(lserror, MSGID_LS_SHARED_MEMORY_ERR, errno);
             goto error;
         }
     }
@@ -142,17 +142,17 @@ _LSTransportShmInitOnce(bool public_bus, LSError *lserror)
 
     if (map == MAP_FAILED)
     {
-        _LSErrorSetFromErrno(lserror, errno);
+        _LSErrorSetFromErrno(lserror, MSGID_LS_SHARED_MEMORY_ERR, errno);
         goto error;
     }
-    
+
     /* lock the page so it's not swapped out -- passing the MAP_LOCKED
      * flag to mmap works on Linux, but not Mac */
     ret = mlock(map, sizeof(_LSTransportShmData));
 
     if (ret == -1)
     {
-        _LSErrorSetFromErrno(lserror, errno);
+        _LSErrorSetFromErrno(lserror, MSGID_LS_SHARED_MEMORY_ERR, errno);
         goto error;
     }
 
@@ -164,7 +164,11 @@ _LSTransportShmInitOnce(bool public_bus, LSError *lserror)
         pthread_mutexattr_init(&attr);
         pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED);
 
-        pthread_mutex_init(&map->lock, &attr);
+        if (pthread_mutex_init(&map->lock, &attr))
+        {
+            LOG_LS_ERROR(MSGID_LS_MUTEX_ERR, 0, "Could not initialize mutex.");
+            goto error;
+        }
         map->serial = MONITOR_SERIAL_INVALID;
         map->front_fence = FENCE_VAL;
         map->back_fence = FENCE_VAL;
@@ -199,12 +203,6 @@ _LSTransportShmInit(_LSTransportShm** shm, bool public_bus, LSError* lserror)
 {
     _LSTransportShm* ret_shm = g_new0(_LSTransportShm, 1);
 
-    if (!ret_shm)
-    {
-        _LSErrorSetOOM(lserror);
-        goto error;
-    }
-
     ret_shm->data = _LSTransportShmInitOnce(public_bus, lserror);
 
     if (ret_shm->data == MAP_FAILED)
@@ -213,11 +211,11 @@ _LSTransportShmInit(_LSTransportShm** shm, bool public_bus, LSError* lserror)
     }
 
     *shm = ret_shm;
-    
+
     return true;
 
 error:
-    if (ret_shm) g_free(ret_shm);
+    g_free(ret_shm);
     return false;
 }
 

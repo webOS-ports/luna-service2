@@ -1,6 +1,6 @@
 /* @@@LICENSE
 *
-*      Copyright (c) 2008-2012 Hewlett-Packard Development Company, L.P.
+*      Copyright (c) 2008-2014 LG Electronics, Inc.
 *
 * Licensed under the Apache License, Version 2.0 (the "License");
 * you may not use this file except in compliance with the License.
@@ -32,6 +32,7 @@
 
 #include "timersource.h"
 #include "clock.h"
+#include "log.h"
 
 struct _GTimerSource
 {
@@ -66,7 +67,7 @@ g_timer_set_expiration(GTimerSource *rsource, GTimeVal *now)
     if (rsource->expiration.tv_usec >= USECS_PER_SEC)
     {
         rsource->expiration.tv_usec -= USECS_PER_SEC;
-        rsource->expiration.tv_sec++;     
+        rsource->expiration.tv_sec++;
     }
 
     if (rsource->granularity)
@@ -155,8 +156,9 @@ g_timer_source_dispatch(GSource *source,
 
     if (!callback)
     {
-        g_warning("Timeout source dispatched without callback\n"
-            "Call g_source_set_callback().");
+        LOG_LS_WARNING(MSGID_LS_TIMER_NO_CALLBACK, 0,
+                       "Timeout source dispatched without callback\n"
+                       "Call g_source_set_callback().");
         return FALSE;
     }
 
@@ -175,11 +177,11 @@ g_timer_source_dispatch(GSource *source,
 
 /** Public Functions */
 
-/** 
+/**
 * @brief A create a timer with 100 ms resolution.
-* 
-* @param  interval_ms 
-* 
+*
+* @param  interval_ms
+*
 * @retval
 */
 GTimerSource *
@@ -245,11 +247,12 @@ g_timer_source_set_interval(GTimerSource *tsource, guint interval_ms, gboolean f
         GMainContext *context =  g_source_get_context((GSource*)tsource);
         if (!context)
         {
-            g_critical("Cannot get context for timer_source.\n"
-                       "Maybe you didn't call g_source_attach()\n");
+            LOG_LS_ERROR(MSGID_LS_TIMER_NO_CONTEXT, 0,
+                         "Cannot get context for timer_source.\n"
+                         "Maybe you didn't call g_source_attach()\n");
             return;
         }
-        g_main_context_wakeup(context); 
+        g_main_context_wakeup(context);
     }
 }
 

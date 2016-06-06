@@ -1,6 +1,6 @@
 /* @@@LICENSE
 *
-*      Copyright (c) 2008-2012 Hewlett-Packard Development Company, L.P.
+*      Copyright (c) 2008-2014 LG Electronics, Inc.
 *
 * Licensed under the Apache License, Version 2.0 (the "License");
 * you may not use this file except in compliance with the License.
@@ -84,10 +84,10 @@ _padding_bytes(unsigned int align_bytes, unsigned int size_bytes)
 
 /* can override these with environment variable */
 #define HUB_DEFAULT_INET_ADDRESS        192.168.2.101
-#define DEFAULT_INET_PORT_PUBLIC        4411    
+#define DEFAULT_INET_PORT_PUBLIC        4411
 #define DEFAULT_INET_PORT_PRIVATE       4412
 
-/** 
+/**
  * Address and port to connect to device emulator from the desktop
  * The emulator is set to bridge port 55NN to 44NN
  */
@@ -107,11 +107,14 @@ _padding_bytes(unsigned int align_bytes, unsigned int size_bytes)
 #define EMULATOR_DESKTOP_INET_ADDRESS_PUBLIC    (XSTR(EMULATOR_DEFAULT_INET_ADDRESS)":"XSTR(EMULATOR_INET_PORT_PUBLIC))
 #define EMULATOR_DESKTOP_INET_ADDRESS_PRIVATE   (XSTR(EMULATOR_DEFAULT_INET_ADDRESS)":"XSTR(EMULATOR_INET_PORT_PRIVATE))
 
-#define HUB_LOCAL_ADDRESS_PUBLIC        "/tmp/com.palm.public_hub"
-#define HUB_LOCAL_ADDRESS_PRIVATE       "/tmp/com.palm.private_hub"
+#define HUB_LOCAL_SOCKET_DIRECTORY      DEFAULT_HUB_LOCAL_SOCKET_DIRECTORY
+#define HUB_LOCAL_ADDRESS_PUBLIC_NAME   "com.palm.public_hub"
+#define HUB_LOCAL_ADDRESS_PRIVATE_NAME  "com.palm.private_hub"
+
 #define HUB_NAME                        "com.palm.hub"
 
 #define MONITOR_NAME                    "com.palm.monitor"
+#define MONITOR_NAME_PUB                "com.palm.monitor-pub"
 
 /*
     Limits the number of times we will send an _LSTransportMessageTypeQueryName message to
@@ -172,6 +175,7 @@ void _LSTransportGmainAttach(_LSTransport *transport, GMainContext *context);
 GMainContext* _LSTransportGetGmainContext(const _LSTransport *transport);
 bool _LSTransportGmainSetPriority(_LSTransport *transport, int priority, LSError *lserror);
 bool _LSTransportConnect(_LSTransport *transport, bool local, bool public_bus, LSError *lserror);
+bool _LSTransportAppendCategory(_LSTransport *transport, const char *category, LSMethod *methods, LSError *lserror);
 _LSTransportConnectState _LSTransportConnectLocal(const char *unique_name, bool new_socket, int *fd, LSError *lserror);
 bool _LSTransportListenLocal(const char *unique_name, mode_t mode, int *fd, LSError *lserror);
 bool _LSTransportSetupListenerLocal(_LSTransport *transport, const char *name, mode_t mode, LSError *lserror);
@@ -194,7 +198,15 @@ bool LSTransportPushRole(_LSTransport *transport, const char *path, LSError *lse
 /* TODO: move these */
 bool LSTransportSendMessageMonitorRequest(_LSTransport *transport, LSError *lserror);
 bool _LSTransportSendMessageListClients(_LSTransport *transport, LSError *lserror);
+bool _LSTransportSendMessageListServiceMethods(_LSTransport *transport, const char *service_name, LSError *lserror);
 bool LSTransportSendQueryServiceStatus(_LSTransport *transport, const char *service_name, LSMessageToken *serial, LSError *lserror);
+bool LSTransportSendQueryServiceCategory(_LSTransport *transport,
+                                         const char *service_name, const char *category,
+                                         LSMessageToken *serial, LSError *lserror);
 const char* _LSTransportQueryNameReplyGetUniqueName(_LSTransportMessage *message);
+
+#ifdef UNIT_TESTS
+void _LSTransportSetTransportType(_LSTransport *transport, _LSTransportType type);
+#endif // UNIT_TESTS
 
 #endif // _TRANSPORT_H_

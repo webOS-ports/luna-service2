@@ -1,6 +1,6 @@
 /* @@@LICENSE
 *
-*      Copyright (c) 2008-2012 Hewlett-Packard Development Company, L.P.
+*      Copyright (c) 2008-2013 LG Electronics, Inc.
 *
 * Licensed under the Apache License, Version 2.0 (the "License");
 * you may not use this file except in compliance with the License.
@@ -34,6 +34,7 @@
 #define LS_ERROR_CODE_DEPRECATED        (-6 - _LS_ERROR_CODE_OFFSET)    /**< API is deprecated */
 #define LS_ERROR_CODE_NOT_PRIVILEGED    (-7 - _LS_ERROR_CODE_OFFSET)    /**< service is not privileged */
 #define LS_ERROR_CODE_PROTOCOL_VERSION  (-8 - _LS_ERROR_CODE_OFFSET)    /**< protocol version mismatch */
+#define LS_ERROR_CODE_EAGAIN            (-9 - _LS_ERROR_CODE_OFFSET)    /**< try again */
 
 /** @} LunaServiceErrorCodes */
 
@@ -47,6 +48,7 @@
 
 #define LUNABUS_SIGNAL_REGISTERED "registered"
 #define LUNABUS_SIGNAL_SERVERSTATUS "ServerStatus"
+#define LUNABUS_SIGNAL_SERVICE_CATEGORY "ServiceCategory"
 
 /** Category for lunabus errors */
 #define LUNABUS_ERROR_CATEGORY "/com/palm/bus/error"

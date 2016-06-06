@@ -1,6 +1,6 @@
 # @@@LICENSE
 #
-#      Copyright (c) 2008-2012 Hewlett-Packard Development Company, L.P.
+#      Copyright (c) 2008-2014 LG Electronics, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,7 +19,9 @@
 set(SOURCE
     base.c
     callmap.c
+    category.c
     clock.c
+    simple_pbnjson.c
     debug_methods.c
     mainloop.c
     message.c
@@ -39,16 +41,40 @@ set(SOURCE
     utils.c
     )
 
-add_definitions(-DG_LOG_DOMAIN="LunaService")
+set(SOURCE_TEST ${SOURCE})
 
 set(LIBRARIES
     ${GLIB2_LDFLAGS}
     ${GTHREAD2_LDFLAGS}
     ${CJSON_LDFLAGS}
+    ${PBNJSON_C_LDFLAGS}
+    ${PMLOGLIB_LDFLAGS}
     dl
     pthread
+    rt
     )
+
+add_definitions(-DDEFAULT_HUB_LOCAL_SOCKET_DIRECTORY="${WEBOS_INSTALL_RUNTIMEINFODIR}/luna-service2")
+
+# Enable LLtng
+if(WEBOS_LTTNG_ENABLED)
+    add_definitions(-DHAS_LTTNG)
+    set(SOURCE ${SOURCE} pmtrace_ls2_provider.c)
+    set(LIBRARIES ${LIBRARIES} urcu-bp lttng-ust)
+endif()
 
 add_library(${CMAKE_PROJECT_NAME} SHARED ${SOURCE})
 target_link_libraries(${CMAKE_PROJECT_NAME} ${LIBRARIES})
+
+if (WEBOS_CONFIG_BUILD_TESTS)
+    set(TESTLIB_PREFIX "_test")
+    set(TESTLIBNAME ${CMAKE_PROJECT_NAME}${TESTLIB_PREFIX})
+    add_library(${TESTLIBNAME} SHARED ${SOURCE_TEST})
+    target_link_libraries(${TESTLIBNAME} ${LIBRARIES})
+    SET_TARGET_PROPERTIES(${TESTLIBNAME} PROPERTIES COMPILE_FLAGS "-DLUNA_SERVICE_UNIT_TEST")
+    add_subdirectory(test)
+else()
+    message(STATUS "libluna-service2: skipping automatic tests")
+endif()
+
 webos_build_library()

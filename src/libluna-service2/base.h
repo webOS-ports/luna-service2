@@ -1,6 +1,6 @@
 /* @@@LICENSE
 *
-*      Copyright (c) 2008-2012 Hewlett-Packard Development Company, L.P.
+*      Copyright (c) 2008-2014 LG Electronics, Inc.
 *
 * Licensed under the Apache License, Version 2.0 (the "License");
 * you may not use this file except in compliance with the License.
@@ -21,12 +21,10 @@
 #define _BASE_H_
 
 
-#undef G_LOG_DOMAIN
-#define G_LOG_DOMAIN  "LunaService"
 #include <glib.h>
 #include <pthread.h>
 #include <stdbool.h>
-#include <cjson/json.h>
+#include <pbnjson.h>
 
 #include "error.h"
 #include "signal.h"
@@ -38,27 +36,9 @@
  * @{
  */
 
-#define JSON_ERROR(x) (!x || is_error(x))
-
 extern bool _ls_enable_utf8_validation;
 
 void LSDebugLogIncoming(const char *where, _LSTransportMessage *message);
-
-/** 
-* @brief 
-*/
-struct LSCategoryTable {
-
-    LSHandle       *sh;
-
-    GHashTable     *methods;
-    GHashTable     *signals;
-    GHashTable     *properties;
-
-    void           *category_user_data;
-};
-
-typedef struct LSCategoryTable LSCategoryTable;
 
 typedef struct _CallMap _CallMap;
 typedef struct _FetchMessageQueue _FetchMessageQueue;
@@ -73,6 +53,9 @@ void LSCustomMessageQueueFree(LSCustomMessageQueue *q);
 
 bool _CallMapInit(LSHandle *sh, _CallMap **ret_map, LSError *lserror);
 void _CallMapDeinit(LSHandle *sh, _CallMap *map);
+
+void _LSGlobalLock();
+void _LSGlobalUnlock();
 
 bool _LSUnregisterCommon(LSHandle *sh, bool flush_and_send_shutdown, void *call_ret_addr, LSError *lserror);
 
@@ -119,7 +102,7 @@ inline void _lshandle_validate(LSHandle *sh);
 
 #endif
 
-/** 
+/**
 * @brief An Object representing a Luna Service.
 * You may create a new Luna Service via LSRegister()
 */
@@ -149,7 +132,7 @@ struct LSHandle {
 #endif
 };
 
-/** 
+/**
 * @brief A palm service contains a connection to both private/public
 *        buses and may expose API on either bus.
 */
@@ -157,6 +140,9 @@ struct LSPalmService {
     LSHandle *public_sh;
     LSHandle *private_sh;
 };
+
+/** Category for lunabus watch category signal */
+#define LUNABUS_WATCH_CATEGORY_CATEGORY "/com/palm/bus/watch/category"
 
 /* @} END OF LunaServiceInternals */
 

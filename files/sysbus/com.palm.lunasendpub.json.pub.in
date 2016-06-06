@@ -1,0 +1,14 @@
+{
+    "role": {
+        "exeName":"@WEBOS_INSTALL_BINDIR@/luna-send-pub",
+        "type": "regular",
+        "allowedNames": ["*"]
+    },
+    "permissions": [
+        {
+            "service":"com.palm.lunasendpub",
+            "inbound":["*"],
+            "outbound":["*"]
+        }
+    ]
+}

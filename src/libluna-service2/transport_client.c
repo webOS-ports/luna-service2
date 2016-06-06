@@ -1,6 +1,6 @@
 /* @@@LICENSE
 *
-*      Copyright (c) 2008-2012 Hewlett-Packard Development Company, L.P.
+*      Copyright (c) 2008-2014 LG Electronics, Inc.
 *
 * Licensed under the Apache License, Version 2.0 (the "License");
 * you may not use this file except in compliance with the License.
@@ -22,6 +22,7 @@
 #include "transport.h"
 #include "transport_priv.h"
 #include "transport_utils.h"
+#include "log.h"
 //#include "transport_client.h"
 
 /**
@@ -35,17 +36,17 @@
  * @{
  */
 
-/** 
+/**
  *******************************************************************************
  * @brief Allocate a new client.
- * 
- * @param  transport        IN  transport 
- * @param  fd               IN  fd 
- * @param  service_name     IN  client service name 
- * @param  unique_name      IN  client unique name 
- * @param  outgoing         IN  outgoing queue (NULL means allocate) 
+ *
+ * @param  transport        IN  transport
+ * @param  fd               IN  fd
+ * @param  service_name     IN  client service name
+ * @param  unique_name      IN  client unique name
+ * @param  outgoing         IN  outgoing queue (NULL means allocate)
  * @param  initiator        IN  true if this is the end of the connection that initiated the connection
- * 
+ *
  * @retval client on success
  * @retval NULL on failure
  *******************************************************************************
@@ -54,12 +55,6 @@ _LSTransportClient*
 _LSTransportClientNew(_LSTransport* transport, int fd, const char *service_name, const char *unique_name, _LSTransportOutgoing *outgoing, bool initiator)
 {
     _LSTransportClient *new_client = g_slice_new0(_LSTransportClient);
-
-    if (!new_client)
-    {
-        g_debug("OOM when attempting to add new incoming connection");
-        return NULL;
-    }
 
     //new_client->sh = sh;
     new_client->service_name = g_strdup(service_name);
@@ -73,10 +68,6 @@ _LSTransportClientNew(_LSTransport* transport, int fd, const char *service_name,
     _LSTransportChannelInit(transport, &new_client->channel, fd, transport->source_priority);
 
     new_client->cred = _LSTransportCredNew();
-    if (!new_client->cred)
-    {
-        goto error;
-    }
 
     /* Get pid, gid, and uid of client if we're local. It won't work for obvious
      * reasons if it's a TCP/IP connection */
@@ -87,7 +78,7 @@ _LSTransportClientNew(_LSTransport* transport, int fd, const char *service_name,
 
         if (!_LSTransportGetCredentials(fd, new_client->cred, &lserror))
         {
-            LSErrorPrint(&lserror, stderr);
+            LOG_LSERROR(MSGID_LS_TRANSPORT_NETWORK_ERR, &lserror);
             LSErrorFree(&lserror);
         }
     }
@@ -101,6 +92,7 @@ _LSTransportClientNew(_LSTransport* transport, int fd, const char *service_name,
         new_client->outgoing = _LSTransportOutgoingNew();
         if (!new_client->outgoing)
         {
+            LOG_LS_ERROR(MSGID_LS_TRANSPORT_INIT_ERR, 0, "Could not allocate outgoing queue");
             goto error;
         }
     }
@@ -108,6 +100,7 @@ _LSTransportClientNew(_LSTransport* transport, int fd, const char *service_name,
     new_client->incoming = _LSTransportIncomingNew();
     if (!new_client->incoming)
     {
+        LOG_LS_ERROR(MSGID_LS_TRANSPORT_INIT_ERR, 0, "Could not allocate incoming queue");
         goto error;
     }
 
@@ -115,8 +108,8 @@ _LSTransportClientNew(_LSTransport* transport, int fd, const char *service_name,
 
 error:
 
-    if (new_client->service_name) g_free(new_client->service_name);
-    if (new_client->unique_name) g_free(new_client->unique_name);
+    g_free(new_client->service_name);
+    g_free(new_client->unique_name);
 
     if (new_client->outgoing && !outgoing)
     {
@@ -126,26 +119,23 @@ error:
     {
         _LSTransportIncomingFree(new_client->incoming);
     }
-    if (new_client)
-    {
-        g_free(new_client);
-    }
+    g_slice_free(_LSTransportClient, new_client);
 
     return NULL;
 }
 
-/** 
+/**
  *******************************************************************************
  * @brief Free a client.
- * 
+ *
  * @param  client   IN  client
  *******************************************************************************
  */
 void
 _LSTransportClientFree(_LSTransportClient* client)
 {
-    if (client->unique_name) g_free(client->unique_name);
-    if (client->service_name) g_free(client->service_name);
+    g_free(client->unique_name);
+    g_free(client->service_name);
     _LSTransportCredFree(client->cred);
     _LSTransportOutgoingFree(client->outgoing);
     _LSTransportIncomingFree(client->incoming);
@@ -159,17 +149,17 @@ _LSTransportClientFree(_LSTransportClient* client)
     g_slice_free(_LSTransportClient, client);
 }
 
-/** 
+/**
  *******************************************************************************
  * @brief Allocate a new client with a ref count of 1.
  *
- * @param  transport        IN  transport 
- * @param  fd               IN  fd 
- * @param  service_name     IN  client service name 
- * @param  unique_name      IN  client unique name 
- * @param  outgoing         IN  outgoing queue (NULL means allocate) 
+ * @param  transport        IN  transport
+ * @param  fd               IN  fd
+ * @param  service_name     IN  client service name
+ * @param  unique_name      IN  client unique name
+ * @param  outgoing         IN  outgoing queue (NULL means allocate)
  * @param  initiator        IN  true if this is the end of the connection that initiated the connection
- * 
+ *
  * @retval client on success
  * @retval NULL on failure
  *******************************************************************************
@@ -181,18 +171,18 @@ _LSTransportClientNewRef(_LSTransport* transport, int fd, const char *service_na
     if (client)
     {
         client->ref = 1;
-        _ls_verbose("%s: %d (%p)\n", __func__, client->ref, client);
+        LOG_LS_DEBUG("%s: %d (%p)\n", __func__, client->ref, client);
     }
-    
-    
+
+
     return client;
 }
 
-/** 
+/**
  *******************************************************************************
  * @brief Increment the ref count of a client.
- * 
- * @param  client   IN  client 
+ *
+ * @param  client   IN  client
  *******************************************************************************
  */
 void
@@ -203,14 +193,14 @@ _LSTransportClientRef(_LSTransportClient *client)
 
     g_atomic_int_inc(&client->ref);
 
-    _ls_verbose("%s: %d (%p)\n", __func__, client->ref, client);
+    LOG_LS_DEBUG("%s: %d (%p)\n", __func__, client->ref, client);
 }
 
-/** 
+/**
  *******************************************************************************
  * @brief Decrement the ref count of a client.
- * 
- * @param  client   IN  client 
+ *
+ * @param  client   IN  client
  *******************************************************************************
  */
 void
@@ -221,21 +211,21 @@ _LSTransportClientUnref(_LSTransportClient *client)
 
     if (g_atomic_int_dec_and_test(&client->ref))
     {
-        _ls_verbose("%s: %d (%p)\n", __func__, client->ref, client);
+        LOG_LS_DEBUG("%s: %d (%p)\n", __func__, client->ref, client);
         _LSTransportClientFree(client);
     }
     else
     {
-        _ls_verbose("%s: %d (%p)\n", __func__, client->ref, client);
+        LOG_LS_DEBUG("%s: %d (%p)\n", __func__, client->ref, client);
     }
 }
 
-/** 
+/**
  *******************************************************************************
  * @brief Get a client's unique name.
- * 
- * @param  client   IN  client 
- * 
+ *
+ * @param  client   IN  client
+ *
  * @retval  name on success
  * @retval  NULL on failure
  *******************************************************************************
@@ -247,14 +237,14 @@ _LSTransportClientGetUniqueName(const _LSTransportClient *client)
     return client->unique_name;
 }
 
-/** 
+/**
  *******************************************************************************
  * @brief Get a client's service name.
- * 
- * @param  client   IN  client 
- * 
+ *
+ * @param  client   IN  client
+ *
  * @retval name on success
- * @retval NULL on failure 
+ * @retval NULL on failure
  *******************************************************************************
  */
 const char*
@@ -264,13 +254,13 @@ _LSTransportClientGetServiceName(const _LSTransportClient *client)
     return client->service_name;
 }
 
-/** 
+/**
  *******************************************************************************
  * @brief Get the channel associated with this client. Does not ref count the
  * channel.
- * 
+ *
  * @param  client   IN  client
- * 
+ *
  * @retval  channel
  *******************************************************************************
  */
@@ -288,12 +278,12 @@ _LSTransportClientGetTransport(const _LSTransportClient *client)
     return client->transport;
 }
 
-/** 
+/**
  *******************************************************************************
  * @brief Get credentials for the client.
- * 
+ *
  * @param  client   IN  client
- * 
+ *
  * @retval  credentials on success
  * @retval  NULL on failure
  *******************************************************************************

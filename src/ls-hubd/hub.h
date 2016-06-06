@@ -1,6 +1,6 @@
 /* @@@LICENSE
 *
-*      Copyright (c) 2008-2012 Hewlett-Packard Development Company, L.P.
+*      Copyright (c) 2008-2013 LG Electronics, Inc.
 *
 * Licensed under the Apache License, Version 2.0 (the "License");
 * you may not use this file except in compliance with the License.
@@ -26,10 +26,12 @@
 #include <stdbool.h>
 #include "error.h"
 
-bool ServiceInitMap(LSError *lserror);
-bool ParseServiceDirectory(const char *path, LSError *lserror);
+bool ServiceInitMap(LSError *lserror, bool volatile_dirs);
+bool ParseServiceDirectory(const char *path, LSError *lserror, bool isVolatileDir);
 bool SetupSignalHandler(int signal, void (*handler)(int));
-const char* IsMediaService(const char *service_name);
 bool LSHubSendConfScanCompleteSignal(void);
+
+typedef struct _Service _Service;
+_Service* ServiceMapLookup(const char *service_name);
 
 #endif  /* _HUB_H */
