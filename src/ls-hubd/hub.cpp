@@ -137,7 +137,7 @@ std::vector<std::string> GetServiceRedirectionVariants(const char* service_name)
 
     // For legacy Palm and LGE services see if there's corresponding com.webos.service.*
     // available.
-    static auto migration_regex = mk_ptr(g_regex_new("^com\\.(palm|lge|webos)(.service)*\\.(.+)$",
+    static auto migration_regex = mk_ptr(g_regex_new("^(com|org)\\.(palm|lge|webos|webosports|webosinternals)(.service)*\\.(.+)$",
                                                      GRegexCompileFlags(G_REGEX_RAW | G_REGEX_OPTIMIZE),
                                                      GRegexMatchFlags(0),
                                                      nullptr),
@@ -145,8 +145,8 @@ std::vector<std::string> GetServiceRedirectionVariants(const char* service_name)
     GMatchInfo *match_info;
     if (g_regex_match(migration_regex.get(), service_name, GRegexMatchFlags(0), &match_info))
     {
-        auto prefix = mk_ptr(g_match_info_fetch(match_info, 1), g_free);
-        auto name = mk_ptr(g_match_info_fetch(match_info, 3), g_free);
+        auto prefix = mk_ptr(g_match_info_fetch(match_info, 2), g_free);
+        auto name = mk_ptr(g_match_info_fetch(match_info, 4), g_free);
 
         if (strcmp(prefix.get(), "webos") != 0)
         {
@@ -160,7 +160,11 @@ std::vector<std::string> GetServiceRedirectionVariants(const char* service_name)
             // services.
             ret.push_back(std::string("com.palm.") + name.get());
             ret.push_back(std::string("com.lge.") + name.get());
+            ret.push_back(std::string("org.webosports.") + name.get());
+            ret.push_back(std::string("org.webosinternals.") + name.get());
             ret.push_back(std::string("com.palm.service.") + name.get());
+            ret.push_back(std::string("org.webosports.service.") + name.get());
+            ret.push_back(std::string("org.webosinternals.service.") + name.get());
         }
     }
     g_match_info_free(match_info);
