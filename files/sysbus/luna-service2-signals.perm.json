@@ -2,6 +2,8 @@
   "com.webos.*": ["signals.all"],
   "com.palm.*":  ["signals.all"],
   "com.lge.*":   ["signals.all"],
+  "org.webosports.*":   ["signals.all"],
+  "org.webosinternals.*":   ["signals.all"],
   "*":           ["signals.all.subscribe"],
   "*":           ["signals.register"]
 }
