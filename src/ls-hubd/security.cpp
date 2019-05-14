@@ -581,6 +581,11 @@ LSHubIsClientAllowedOutbound(_LSTransportClient *sender_client,
     {
         return true;
     }
+    else
+    {
+        _LSHubPrintPermissionsMessage(sender_client, sender_service_name, dest_service_name,
+                                      false, g_conf_security_enabled);
+    }
 
     return !g_conf_security_enabled;
 }
