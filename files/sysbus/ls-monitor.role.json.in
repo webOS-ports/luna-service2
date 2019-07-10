@@ -6,6 +6,14 @@
         {
             "service":"com.webos.monitor*",
             "outbound":["*"]
+        },
+        {
+            "service":"com.palm.monitor*",
+            "outbound":["*"]
+        },
+        {
+            "service":"org.webosports.monitor*",
+            "outbound":["*"]
         }
     ]
 }

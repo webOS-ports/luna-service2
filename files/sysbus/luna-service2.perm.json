@@ -1,5 +1,9 @@
 {
   "*": ["luna.internal.public"],
   "com.webos.monitor*": ["luna.internal"],
-  "com.webos.lunasend-*": ["all"]
+  "com.palm.monitor*": ["luna.internal"],
+  "org.webosports.monitor*": ["luna.internal"],
+  "com.webos.lunasend-*": ["all"],
+  "com.palm.lunasend-*": ["all"],
+  "org.webosports.lunasend-*": ["all"]
 }
