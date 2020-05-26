@@ -153,6 +153,7 @@ std::vector<std::string> GetServiceRedirectionVariants(const char* service_name)
             // Forward compatibility for legacy clients connecting to migrated
             // services.
             ret.push_back(std::string("com.webos.service.") + name.get());
+            ret.push_back(std::string("org.webosports.service.") + name.get());
         }
         else
         {
