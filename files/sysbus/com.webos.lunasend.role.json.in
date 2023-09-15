@@ -7,6 +7,10 @@
         {
             "service": "com.webos.lunasend-*",
             "outbound": ["*"]
+        },
+        {
+            "service": "org.webosports.lunasend-*",
+            "outbound": ["*"]
         }
     ]
 }
