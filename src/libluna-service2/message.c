@@ -593,7 +593,7 @@ LSMessageIsSubscription(LSMessage *message)
 
     jvalue_ref object = jdom_parse(j_cstr_to_buffer(payload), DOMOPT_NOOPT,
                                    &schemaInfo);
-    if (jis_null(object))
+    if (jis_null(object) || !jis_object(object))
         goto exit;
 
     if (!jobject_get_exists(object, J_CSTR_TO_BUF("subscribe"),
