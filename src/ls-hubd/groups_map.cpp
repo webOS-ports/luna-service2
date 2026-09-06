@@ -328,7 +328,14 @@ std::string GroupsMap::GetRequiredTrustAsString(const char *service_name) const
          //else
          {
              //trust_string = (data.trust_level_required.begin()->second)[0];// It all will be same, so first string is enough
-             trust_string = data.trustLevel;
+             // Only take the trust level from nodes that actually define one.
+             // The trie descent visits every node on the way to the service
+             // name; intermediate/exact nodes created by client-permissions
+             // files carry no trustLevel and must not wipe out the level a
+             // role file set on a shorter (wildcard) prefix, otherwise the
+             // caller is silently downgraded to DEFAULT_TRUST_LEVEL.
+             if (!data.trustLevel.empty())
+                 trust_string = data.trustLevel;
          }
     };
 
