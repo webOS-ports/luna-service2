@@ -68,9 +68,23 @@ enum class PatternMatchResult
  */
 inline PatternMatchResult globPatternMatch(const char *pat, const char *str)
 {
-    // We don't match wildcard, so we exclude it from matching
-    auto pat_size = strlen(pat) - 1;
+    auto full_len = strlen(pat);
     auto str_len = strlen(str);
+
+    if (full_len == 0 || pat[full_len - 1] != WILDCARD)
+    {
+        // Literal pattern (no trailing wildcard): exact match only. The
+        // previous code unconditionally dropped the last character, so a
+        // category pattern "/camera" also matched "/cameraPrivate/..."
+        // and could hand out the wrong ACG protection (and an empty
+        // pattern underflowed the length).
+        return (full_len == str_len && std::equal(pat, pat + full_len, str))
+             ? PatternMatchResult::PATTERN_MATCH
+             : PatternMatchResult::PATTERN_MISMATCH;
+    }
+
+    // We don't match wildcard, so we exclude it from matching
+    auto pat_size = full_len - 1;
     if (str_len < pat_size) return PatternMatchResult::PATTERN_MISMATCH;
     else
     {

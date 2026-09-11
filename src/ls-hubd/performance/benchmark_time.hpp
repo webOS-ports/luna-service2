@@ -67,7 +67,7 @@ namespace {
     ///
     /// @param func - benchmarkable function
     /// @param cycles - amount of cycles to pass into it
-    inline MeasuredTime measureTime(std::function<void(size_t n) noexcept> func, size_t cycles) noexcept
+    inline MeasuredTime measureTime(std::function<void(size_t n)> func, size_t cycles) noexcept
     {
         auto timeStart = stop_watch::now();
         auto cpuTimeStart = CPUTime::now();
@@ -93,7 +93,7 @@ namespace {
     ///
     /// @param func - benchmarkable function that accepts amount of cycles to run for
     /// @param timeLimit - lower bound on how long the benchmarking process should take
-    inline std::vector<MeasuredTime> benchmarkTime(std::function<void(size_t n) noexcept> func, stop_watch::duration timeLimit) noexcept
+    inline std::vector<MeasuredTime> benchmarkTime(std::function<void(size_t n)> func, stop_watch::duration timeLimit) noexcept
     {
         // The amount of time a benchmark must run for in order for us to have some trust in the raw measurement.
         constexpr auto threshold = std::chrono::milliseconds{30};

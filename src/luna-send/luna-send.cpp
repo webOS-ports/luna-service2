@@ -188,14 +188,18 @@ serviceResponse(LSHandle *sh, LSMessage *reply, void *ctx)
       if (!jis_null(original)) {
         while (query) {
           char * query_text = (char*)query->data;
+          /* apply_query returns a reference borrowed from `original`;
+           * jobject_put takes ownership, so grab our own reference or
+           * releasing both trees would double-release the node */
           jvalue_ref result = apply_query(original, query_text);
           jobject_put(filtered_payload,
                       jstring_create_copy(j_cstr_to_buffer(query_text)),
-                      result);
+                      result ? jvalue_copy(result) : jnull());
           query = query->next;
         }
         payload = jvalue_prettify(filtered_payload, "  ");
       }
+      j_release(&original);
     }
 
     if (format_response) {

@@ -65,10 +65,27 @@ void _LSTransportIncomingFree(_LSTransportIncoming *incoming)
 {
     LS_ASSERT(incoming != NULL);
 
-    /* want to have processed all incoming messages so we don't lose any */
+    /* want to have processed all incoming messages so we don't lose any,
+     * but a client that disconnects mid-message leaves a partially received
+     * tmp_msg and possibly unprocessed complete messages behind: release
+     * them instead of leaking (up to MAX_MESSAGE_SIZE_BYTES per dirty
+     * disconnect) */
     LS_ASSERT(incoming->tmp_msg == NULL);
+    if (incoming->tmp_msg)
+    {
+        _LSTransportMessageUnref(incoming->tmp_msg);
+        incoming->tmp_msg = NULL;
+    }
     LS_ASSERT(g_queue_is_empty(incoming->complete_messages));
-    g_queue_free(incoming->complete_messages);
+    if (incoming->complete_messages)
+    {
+        _LSTransportMessage *queued;
+        while ((queued = g_queue_pop_head(incoming->complete_messages)) != NULL)
+        {
+            _LSTransportMessageUnref(queued);
+        }
+        g_queue_free(incoming->complete_messages);
+    }
 
 #ifdef MEMCHECK
     memset(incoming, 0xFF, sizeof(_LSTransportIncoming));

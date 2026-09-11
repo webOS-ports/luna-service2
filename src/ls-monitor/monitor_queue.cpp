@@ -109,7 +109,11 @@ _LSMonitorQueueSerialsSortFunc(gconstpointer a, gconstpointer b, gpointer user_d
     const _LSMonitorMessageData *message_data_a = _LSTransportMessageGetMonitorMessageData(item_a->message);
     const _LSMonitorMessageData *message_data_b = _LSTransportMessageGetMonitorMessageData(item_b->message);
 
-    return (message_data_a->serial - message_data_b->serial);
+    /* three-way compare: a plain subtraction truncated the 64-bit serials
+     * to gint and could mis-order them */
+    if (message_data_a->serial < message_data_b->serial) return -1;
+    if (message_data_a->serial > message_data_b->serial) return 1;
+    return 0;
 }
 
 void
@@ -151,6 +155,11 @@ _LSMonitorQueuePrint(_LSMonitorQueue *queue, int msecs, GHashTable *hash_table, 
             _LSMonitorQueueItemFree(item);
 
             first = ' ';
+        }
+        else
+        {
+            /* item without monitor message data: still must be freed */
+            _LSMonitorQueueItemFree(item);
         }
     }
 }

@@ -883,7 +883,11 @@ _LSTransportMessageSetBodySize(const _LSTransportMessage *message, unsigned long
 static inline bool
 _LSTransportMessageIsValidMessageBodyPtr(const _LSTransportMessage *message, const char *ptr)
 {
-    if (ptr < message->raw->data + _LSTransportMessageGetBodySize(message))
+    /* also reject NULL and below-body pointers: a zero-length body makes
+     * _LSTransportMessageGetBody() return NULL and pointer arithmetic on
+     * that must not pass validation */
+    if (ptr && ptr >= message->raw->data
+        && ptr < message->raw->data + _LSTransportMessageGetBodySize(message))
     {
         return true;
     }
@@ -891,6 +895,33 @@ _LSTransportMessageIsValidMessageBodyPtr(const _LSTransportMessage *message, con
                    "Message access out of bounds: requested: %p, end: %p",
                    ptr, message->raw->data + _LSTransportMessageGetBodySize(message));
     return false;
+}
+
+/**
+ *******************************************************************************
+ * @brief Return @p ptr if it points to a string that is completely (including
+ * its terminating NUL) inside the message body, otherwise NULL.
+ *
+ * Message bodies come from untrusted peers and are not guaranteed to be
+ * NUL-terminated, so this must be used before any strlen() on body data.
+ *******************************************************************************
+ */
+static const char*
+_LSTransportMessageGetStringChecked(const _LSTransportMessage *message, const char *ptr)
+{
+    if (!_LSTransportMessageIsValidMessageBodyPtr(message, ptr))
+    {
+        return NULL;
+    }
+
+    const char *end = message->raw->data + _LSTransportMessageGetBodySize(message);
+    if (!memchr(ptr, '\0', end - ptr))
+    {
+        LOG_LS_WARNING(MSGID_LS_ACCESS_ERR, 0,
+                       "Unterminated string in message body");
+        return NULL;
+    }
+    return ptr;
 }
 
 /**
@@ -1000,43 +1031,44 @@ _LSTransportMessageGetPayload(const _LSTransportMessage *message)
     case _LSTransportMessageTypeReplyWithFd:
     case _LSTransportMessageTypeError:
     case _LSTransportMessageTypeErrorUnknownMethod:
+        /* body must at least contain the reply serial */
+        if (_LSTransportMessageGetBodySize(message) <= sizeof(LSMessageToken))
+        {
+            return NULL;
+        }
+
         /* skip over the reply serial */
-        ret = _LSTransportMessageGetBody(message) + sizeof(LSMessageToken);
-        if (!_LSTransportMessageIsValidMessageBodyPtr(message, ret))
+        ret = _LSTransportMessageGetStringChecked(message,
+                  _LSTransportMessageGetBody(message) + sizeof(LSMessageToken));
+        if (!ret)
         {
             return NULL;
         }
 
         /* skip over the payload type */
-        ret += strlen(ret) + 1;
-        if (!_LSTransportMessageIsValidMessageBodyPtr(message, ret))
-        {
-            return NULL;
-        }
-
-        return ret;
+        return _LSTransportMessageGetStringChecked(message, ret + strlen(ret) + 1);
 
     case _LSTransportMessageTypeMethodCall:
     case _LSTransportMessageTypeCancelMethodCall:
     case _LSTransportMessageTypeSignal:
     case _LSTransportMessageTypeServiceUpSignal:
     case _LSTransportMessageTypeServiceDownSignal:
-        /* skip over category */
-        ret = _LSTransportMessageGetBody(message) + strlen(_LSTransportMessageGetBody(message)) + 1;
+        /* category */
+        ret = _LSTransportMessageGetStringChecked(message, _LSTransportMessageGetBody(message));
+        if (!ret)
+        {
+            return NULL;
+        }
 
-        if (!_LSTransportMessageIsValidMessageBodyPtr(message, ret))
+        /* skip over category */
+        ret = _LSTransportMessageGetStringChecked(message, ret + strlen(ret) + 1);
+        if (!ret)
         {
             return NULL;
         }
 
         /* skip over method */
-        ret = ret + strlen(ret) + 1;
-
-        if (!_LSTransportMessageIsValidMessageBodyPtr(message, ret))
-        {
-            return NULL;
-        }
-        return ret;
+        return _LSTransportMessageGetStringChecked(message, ret + strlen(ret) + 1);
 
     default:
         /* When DEBUG_VERBOSE is enabled we expect to call this function on
@@ -1089,10 +1121,18 @@ _LSTransportMessageGetAppIdPtr(_LSTransportMessage *message)
             /* TODO: very inefficient */
 
             const char *payload = _LSTransportMessageGetPayload(message);
+            if (!payload)
+            {
+                return NULL;
+            }
 
             /* skip over payload */
-            const char *ret = (payload + strlen(payload) + 1);
-            LS_ASSERT(ret);
+            const char *ret = _LSTransportMessageGetStringChecked(message,
+                                  payload + strlen(payload) + 1);
+            if (!ret)
+            {
+                return NULL;
+            }
 
             /* cache the value */
             message->app_id = ret;
@@ -1158,12 +1198,14 @@ _LSTransportMessageGetMethod(const _LSTransportMessage *message)
     case _LSTransportMessageTypeServiceUpSignal:
     case _LSTransportMessageTypeServiceDownSignal:
     {
-        const char *ret = message->raw->data + strlen(message->raw->data) + 1;
-        if (!_LSTransportMessageIsValidMessageBodyPtr(message, ret))
+        /* category string first; the method follows its NUL */
+        const char *category = _LSTransportMessageGetStringChecked(message, message->raw->data);
+        if (!category)
         {
             return NULL;
         }
-        return ret;
+        return _LSTransportMessageGetStringChecked(message,
+                   category + strlen(category) + 1);
     }
     default:
         LOG_LS_DEBUG("Unrecognized type (%d) to call %s on", (int)_LSTransportMessageGetType(message), __func__);
@@ -1192,7 +1234,7 @@ _LSTransportMessageGetCategory(const _LSTransportMessage *message)
     case _LSTransportMessageTypeSignalUnregister:
     case _LSTransportMessageTypeServiceUpSignal:
     case _LSTransportMessageTypeServiceDownSignal:
-        return message->raw->data;
+        return _LSTransportMessageGetStringChecked(message, message->raw->data);
     default:
         LOG_LS_DEBUG("Unrecognized type (%d) to call %s on", (int)_LSTransportMessageGetType(message), __func__);
         return NULL;
@@ -1757,7 +1799,11 @@ ServiceNameCompactCopy(const char *service_name, char buffer[], size_t buffer_si
         }
     }
     /* keep at least last two nodes as is include delimiter */
-    strncpy(compact_node, tmp_node, strlen(tmp_node));
+    /* copy the tail and always NUL-terminate (strncpy with a strlen bound
+     * would leave the result unterminated for callers with unzeroed buffers) */
+    size_t tail_len = strlen(tmp_node);
+    memcpy(compact_node, tmp_node, tail_len);
+    compact_node[tail_len] = '\0';
 
     return buffer;
 }
@@ -2394,11 +2440,23 @@ _LSTransportMessageIterGetArgLen(_LSTransportMessageIter *iter)
         return -1;
     }
 
-    int len = ((_LSTransportMessageArgHeader*)(iter->actual_iter))->len;
+    /* len comes from an untrusted peer: keep it unsigned so huge values
+     * cannot pass the bounds check as negative ints, and bound it by the
+     * bytes remaining AFTER the argument header (len counts the payload
+     * that follows the header, so comparing against the total remaining
+     * bytes over-allowed it by the header size) */
+    uint32_t len = ((_LSTransportMessageArgHeader*)(iter->actual_iter))->len;
 
-    if (len <= _LSTransportMessageIterBytesRemaining(iter))
+    int header_size = _LSTransportMessageGetArgHeaderSize(iter);
+    int remaining = _LSTransportMessageIterBytesRemaining(iter);
+    if (header_size < 0 || remaining < header_size)
     {
-        return len;
+        return -1;
+    }
+
+    if (len <= (uint32_t)(remaining - header_size))
+    {
+        return (int)len;
     }
     else
     {
@@ -2435,11 +2493,22 @@ _LSTransportMessageIterGetArgStrLen(_LSTransportMessageIter *iter)
         return -1;
     }
 
-    int len = ((_LSTransportMessageArgStringHeader*)(iter->actual_iter))->str_len;
+    /* untrusted length: unsigned comparison, and the string bytes start
+     * after the full string header, so bound str_len by what actually
+     * remains after that header (found by fuzzing: a str_len between
+     * remaining-12 and remaining passed the old check and produced an
+     * out-of-bounds read of value[str_len - 1]) */
+    uint32_t len = ((_LSTransportMessageArgStringHeader*)(iter->actual_iter))->str_len;
 
-    if (len <= _LSTransportMessageIterBytesRemaining(iter))
+    int remaining = _LSTransportMessageIterBytesRemaining(iter);
+    if (remaining < (int)sizeof(_LSTransportMessageArgStringHeader))
     {
-        return len;
+        return -1;
+    }
+
+    if (len <= (uint32_t)(remaining - sizeof(_LSTransportMessageArgStringHeader)))
+    {
+        return (int)len;
     }
     else
     {
@@ -2857,7 +2926,13 @@ _LSTransportMessageGetInt32(_LSTransportMessageIter *iter, int32_t *ret)
         return false;
     }
 
-    *ret = *((int32_t*)_LSTransportMessageGetArgValue(iter, _LSTransportMessageArgTypeInt32));
+    void *value = _LSTransportMessageGetArgValue(iter, _LSTransportMessageArgTypeInt32);
+    if (!value)
+    {
+        *ret = 0;
+        return false;
+    }
+    *ret = *((int32_t*)value);
     return true;
 }
 
@@ -2884,7 +2959,13 @@ _LSTransportMessageGetInt64(_LSTransportMessageIter *iter, int64_t *ret)
         return false;
     }
 
-    *ret = *((int64_t*)_LSTransportMessageGetArgValue(iter, _LSTransportMessageArgTypeInt64));
+    void *value = _LSTransportMessageGetArgValue(iter, _LSTransportMessageArgTypeInt64);
+    if (!value)
+    {
+        *ret = 0;
+        return false;
+    }
+    *ret = *((int64_t*)value);
     return true;
 }
 

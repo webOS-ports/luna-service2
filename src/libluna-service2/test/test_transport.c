@@ -74,8 +74,7 @@ clear_counters()
     this_transport = NULL;
     headertype = 0;
 
-    _LSTransportMessageType typelist[0] = {};
-    expected_message_types = typelist;
+    expected_message_types = NULL;
 }
 
 /* Not a mock function. For internal cleanup purposes.

@@ -50,7 +50,12 @@ static void
 _WatchdogGenerateRdxReport(void)
 {
     LOG_LS_DEBUG("Generating RDX report");
-    system(WATCHDOG_RDX_REPORTER_CMD);
+    int rc = system(WATCHDOG_RDX_REPORTER_CMD);
+    if (rc != 0)
+    {
+        LOG_LS_WARNING(MSGID_LSHUB_WATCHDOG_ERR, 0,
+                       "RDX reporter exited with status %d", rc);
+    }
 }
 #endif
 

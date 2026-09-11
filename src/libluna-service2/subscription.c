@@ -1055,6 +1055,7 @@ LSSubscriptionAcquire(LSHandle *sh, const char *key,
     }
     else
     {
+        _SubListFree(iter->tokens);
         g_free(iter);
         return false;
     }

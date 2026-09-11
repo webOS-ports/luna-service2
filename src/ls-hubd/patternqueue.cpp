@@ -22,6 +22,13 @@
 #include "error.h"
 #include "pattern.hpp"
 
+/* glib 2.70 renamed the pattern-match functions */
+#if GLIB_CHECK_VERSION(2, 70, 0)
+#define ls_pattern_match(spec, len, str, rev) g_pattern_spec_match((spec), (len), (str), (rev))
+#else
+#define ls_pattern_match(spec, len, str, rev) g_pattern_match((spec), (len), (str), (rev))
+#endif
+
 /// @cond INTERNAL
 /// @addtogroup LunaServiceHub
 /// @{
@@ -282,7 +289,7 @@ _LSHubPatternQueueHasMatch(const _LSHubPatternQueue *q, const char *str)
     while (list)
     {
         _LSHubPatternSpec *pattern = (_LSHubPatternSpec*)list->data;
-        if (g_pattern_match(pattern->pattern_spec, strlen(str), str, rev_str.get()))
+        if (ls_pattern_match(pattern->pattern_spec, strlen(str), str, rev_str.get()))
         {
             return true;
         }

@@ -32,7 +32,7 @@ static auto make = [](const char* name, const char* id, uint32_t flags, const st
     ret->perm_flags = flags;
     for (const auto& i : io) LSHubPermissionAddAllowedInbound(ret.get(), i.c_str());
     for (const auto& o : io) LSHubPermissionAddAllowedOutbound(ret.get(), o.c_str());
-    return std::move(ret);
+    return ret;
 };
 
 TEST(TestMaps, TestRoleMapAddRemove)

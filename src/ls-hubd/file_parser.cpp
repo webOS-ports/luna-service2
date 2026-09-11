@@ -570,7 +570,8 @@ namespace {
     /// JSON expected to match that schema. Otherwise behavior is undefined.
     class JParseKeyedStrArrays
     {
-        typedef std::function<void(const std::string &, pbnjson::JInput) noexcept> handler_type;
+        // C++17: noexcept is part of the function type and std::function<R(Args) noexcept> is ill-formed
+        typedef std::function<void(const std::string &, pbnjson::JInput)> handler_type;
 
         bool have_key = false;
         handler_type handler;
@@ -668,17 +669,17 @@ static void ParseHandler(CategoryMap &map, const std::string &key, pbnjson::JInp
     LOG_LS_DEBUG("%s: [ key :%s ] , [value: %s]", __func__, key.c_str(),fixed);
 }
 
-bool ParseRequiresString(const std::string &data, CategoryMap &requires, LSError *error)
+bool ParseRequiresString(const std::string &data, CategoryMap &required, LSError *error)
 {
-    JParseKeyedStrArrays parser(std::bind(&ParseHandler, std::ref(requires), _1, _2), error);
+    JParseKeyedStrArrays parser(std::bind(&ParseHandler, std::ref(required), _1, _2), error);
     return parser.parse(data, client_permissions_schema);
 }
 
-bool ParseRequiresFile(const std::string &path, CategoryMap &requires, LSError *error)
+bool ParseRequiresFile(const std::string &path, CategoryMap &required, LSError *error)
 {
     LOG_LS_DEBUG("%s: parsing JSON from file: \"%s\"", __func__, path.c_str());
 
-    JParseKeyedStrArrays parser(std::bind(&ParseHandler, std::ref(requires), _1, _2), error);
+    JParseKeyedStrArrays parser(std::bind(&ParseHandler, std::ref(required), _1, _2), error);
     return parser.parseFile(path.c_str(), client_permissions_schema);
 }
 
@@ -744,7 +745,11 @@ void ParseServicetoTrustMap(pbnjson::JValue &object, ServiceToTrustMap &trust_le
         std::string o = object.stringify();
         TrustMap trusts;
         JParseKeyedStrArrays parser(std::bind(&ParseGroupsHandler, std::ref(trusts), _1, _2), error);
-        bool retVal = parser.parse(object.stringify(), groups_schema);
+        if (!parser.parse(object.stringify(), groups_schema))
+        {
+            LOG_LS_ERROR(MSGID_LSHUB_ROLE_FILE_ERR, 0,
+                         "Failed to parse provided trust level groups");
+        }
 
         // Populate service t trust map
         for (auto & service_name: service_names.items())
@@ -786,28 +791,6 @@ ParseJSONGetRequiredPermissions(const pbnjson::JValue &json, const std::string &
     {
         std::string service = service_name.asString();
         trust_level[service] = (trusts);
-    }
-}
-
-void DumpTrustMapToFile(std::string filename, ServiceToTrustMap &trust_level, std::string title)
-{
-    if (filename.empty()) return;
-    if (trust_level.size() == 0) return;
-    std::ofstream file;
-    std::string name = "/tmp/" + std::string(filename);
-    file.open(name);
-    if(file.is_open())
-    {
-        file << "TrustMap for => " << title << std::endl;
-        std::string trustmap;
-        for(const auto& e : trust_level)
-        {
-            file << "Service Name: " << e.first << std::endl;
-            std::string dump;
-            DumpTrustMap(e.second, dump);
-            file << dump << std::endl;
-        }
-        file.close();
     }
 }
 

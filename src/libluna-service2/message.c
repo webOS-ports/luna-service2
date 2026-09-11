@@ -89,12 +89,28 @@ _LSMessageParsePayload(LSMessage *message)
     if (_LSTransportMessageGetType(tmsg) == _LSTransportMessageTypeReply ||
         _LSTransportMessageGetType(tmsg) == _LSTransportMessageTypeReplyWithFd)
     {
-        const char *data = _LSTransportMessageGetBody(tmsg) + sizeof(LSMessageToken);
-        size_t size = _LSTransportMessageGetBodySize(tmsg) - sizeof(LSMessageToken);
+        /* The body comes from the peer: it must be large enough for the
+         * reply serial and the payload type string must be NUL-terminated
+         * inside the body, or the size arithmetic below underflows and
+         * _LSPayloadDeserialize runs off the end of the allocation. */
+        const char *body = _LSTransportMessageGetBody(tmsg);
+        size_t body_size = _LSTransportMessageGetBodySize(tmsg);
 
-        _LSPayloadDeserialize(payload, (void*)data, size);
-        payload->fd = _LSTransportMessageGetFd(tmsg);
-        return;
+        if (body && body_size > sizeof(LSMessageToken))
+        {
+            const char *data = body + sizeof(LSMessageToken);
+            size_t size = body_size - sizeof(LSMessageToken);
+
+            if (memchr(data, '\0', size))
+            {
+                _LSPayloadDeserialize(payload, (void*)data, size);
+                payload->fd = _LSTransportMessageGetFd(tmsg);
+                return;
+            }
+        }
+        LOG_LS_WARNING(MSGID_LS_MSG_ERR, 0,
+                       "Malformed reply message body (size %zu)", body_size);
+        /* fall through to the JSON fallback below */
     }
 
     const char *json = _LSTransportMessageGetPayload(tmsg);
@@ -104,11 +120,18 @@ _LSMessageParsePayload(LSMessage *message)
         payload->data = (void*)json;
         payload->size = strlen(json) + 1;
     }
-    else
+    else if (message->payload)
     {
         payload->type = PAYLOAD_TYPE_JSON;
         payload->data = (void*)message->payload;
         payload->size = strlen(message->payload) + 1;
+    }
+    else
+    {
+        /* malformed message with no recoverable payload */
+        payload->type = PAYLOAD_TYPE_JSON;
+        payload->data = (void*)"";
+        payload->size = 1;
     }
 }
 /**
@@ -642,7 +665,7 @@ void validate_reply(LSMessage *msg, const char *reply)
         {
             strcat(from, "/");
         }
-        strncat(from, kind, strlen(kind));
+        strcat(from, kind); /* buffer is sized for service + '/' + kind + NUL */
     }
 
     jvalue_ref parsed = jdom_parse(j_cstr_to_buffer(reply),

@@ -187,7 +187,7 @@ private:
     std::unique_ptr<CallPtr> _context;
     std::mutex _mutex;
     std::queue<Message> _queue;
-    volatile bool _timeoutExpired;
+    volatile bool _timeoutExpired = false;
     LS::condition_variable _cv;
 
     void call(LSHandle *sh, const char *uri, const char *payload, bool oneReply, const char *appID = NULL)

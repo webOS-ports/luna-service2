@@ -54,63 +54,6 @@ typedef struct _LSTransportMessageFailureItem
     _LSTransportMessageFailureType failure_type;    /**< type of failure */
 } _LSTransportMessageFailureItem;
 
-#ifdef DEBUG
-void DumpToFile(const char* filename, const char* dump, _LSTransport *transport)
-{
-    if (!filename) return;
-
-    if(strstr(dump, "[]") != NULL) return;
-
-    char full_path[1024] = {0};
-    char title[1024] = {0};
-
-    strncpy(full_path, "/tmp/", sizeof(full_path) - 1);
-    strncat(full_path, filename, sizeof(full_path) - strlen(full_path) - 1);
-    strncat(full_path, "_", sizeof(full_path) - strlen(full_path) - 1);
-
-    if (transport->service_name && strlen(transport->service_name) > 0)
-    {
-        strncpy(title, "ServiceName: ", sizeof(title) - strlen(title) - 1);
-        strncat(title, transport->service_name, sizeof(title) - strlen(title) - 1);
-        strncat(title, "\n", sizeof(title) - strlen(title) - 1);
-        strncat(full_path, transport->service_name, sizeof(full_path) - strlen(full_path) - 1);
-        strncat(full_path, "_", sizeof(full_path) - strlen(full_path) - 1);
-    }
-
-    if (transport->app_id && strlen(transport->app_id) > 0)
-    {
-        strncat(title, "AppID: ", sizeof(title) - strlen(title) - 1);
-        strncat(title, transport->app_id, sizeof(title) - strlen(title) - 1);
-        strncat(title, "\n", sizeof(title) - strlen(title) - 1);
-        strncat(full_path, transport->app_id, sizeof(full_path)- strlen(full_path) - 1);
-        strncat(full_path, "_", sizeof(full_path)- strlen(full_path) - 1);
-    }
-
-    if (transport->unique_name && strlen(transport->unique_name) > 0)
-    {
-        strncat(title, "UniqueName: ", sizeof(title) - strlen(title) - 1);
-        strncat(title, transport->unique_name, sizeof(title) - strlen(title) - 1);
-        strncat(title, "\n", sizeof(title) - strlen(title) - 1);
-        strncat(full_path, transport->unique_name, sizeof(full_path) - strlen(full_path) - 1);
-        strncat(full_path, "_", sizeof(full_path)- strlen(full_path) - 1);
-    }
-
-    FILE *fp;
-    // open file for writing
-    fp = fopen (full_path, "w");
-    if (fp == NULL)
-    {
-        //fprintf(stderr, "\nError opend file\n");
-        return;
-    }
-    fprintf(fp, "%s", title);
-    fprintf(fp, "\n");
-    fprintf (fp, "%s", dump);
-    fprintf(fp, "\n");
-    fclose(fp);
-}
-#endif
-
 bool _LSTransportProcessIncomingMessages(_LSTransportClient *client, LSError *lserror);
 
 
@@ -1601,7 +1544,15 @@ _LSTransportRecvMessageBlocking(_LSTransportClient *client, _LSTransportMessageT
 
     LS_ASSERT(msg_type_match == true);
 
-    LS_ASSERT(header.len < (ULONG_MAX - sizeof(_LSTransportMessageRaw)));
+    /* cap the peer-supplied length like the non-blocking receive path does;
+     * LS_ASSERT alone is a no-op in release builds */
+    if (header.len > MAX_MESSAGE_SIZE_BYTES)
+    {
+        _LSErrorSet(lserror, MSGID_LS_MSG_ERR, -1,
+                    "Blocking receive: message too large (%lu bytes)",
+                    (unsigned long)header.len);
+        goto exit;
+    }
 
     message = _LSTransportMessageNewRef(header.len);
 
@@ -1767,7 +1718,23 @@ _LSTransportHandleMonitor(_LSTransportMessage *message)
 
     LOG_LS_DEBUG("%s: connecting to monitor: %s\n", __func__, unique_name);
 
-    transport->monitor = _LSTransportConnectClient(transport, NULL, unique_name, dup(_LSTransportMessageGetFd(message)), NULL, _LSClientAllowBoth, &lserror);
+    if (transport->monitor)
+    {
+        /* don't leak the previous monitor client reference if the hub
+         * announces a new monitor */
+        _LSTransportClientUnref(transport->monitor);
+        transport->monitor = NULL;
+    }
+
+    int monitor_fd = dup(_LSTransportMessageGetFd(message));
+    if (monitor_fd < 0)
+    {
+        LOG_LS_ERROR(MSGID_LS_TRANSPORT_CONNECT_ERR, 0,
+                     "Failed to dup monitor fd: %d", errno);
+        return;
+    }
+
+    transport->monitor = _LSTransportConnectClient(transport, NULL, unique_name, monitor_fd, NULL, _LSClientAllowBoth, &lserror);
 
     if (!transport->monitor)
     {
@@ -2014,11 +1981,6 @@ _LSTransportRequestName(const char *requested_name,
             _LSTransportInitializeTrustLevel(client->transport, trust_provided_map_json, strlen(trust_provided_map_json)
                                                              , trust_required_map_json, strlen(trust_required_map_json)
                                                              , trust_level_string, strlen(trust_level_string));
-#ifdef DEBUG
-        DumpToFile("transport_c__LSTransportRequestName_trust_provided_map_json", trust_provided_map_json, client->transport);
-        DumpToFile("transport_c__LSTransportRequestName_trust_required_map_json", trust_required_map_json, client->transport);
-        //DumpToFile("transport_c__LSTransportRequestName_trust_level_string", trust_level_string, client->transport);
-#endif
         }
 
         /* need copy since iterator points inside message */
@@ -2916,11 +2878,13 @@ _LSTransportHandleQueryProxyNameFailure(_LSTransportMessage *message, long err_c
     LSError lserror;
     LSErrorInit(&lserror);
 
-    if (!service_name) {
+    if (!service_name || !origin_name) {
+        /* origin_name may be missing from a malformed reply; g_strconcat
+         * starting with NULL returns NULL and would crash g_str_hash below */
         return;
     }
 
-    const char *concatenated_name = g_strconcat(origin_name, ":", service_name, NULL);
+    char *concatenated_name = g_strconcat(origin_name, ":", service_name, NULL);
 
     /* error case */
     _LSTransport *transport = _LSTransportMessageGetClient(message)->transport;
@@ -3073,7 +3037,7 @@ _LSTransportHandleQueryProxyNameReply(_LSTransportMessage *message) {
     const char *origin_name = _LSTransportQueryProxyNameReplyGetOriginName(message);
     const char *origin_id = _LSTransportQueryProxyNameReplyGetOriginId(message);
     const char *origin_exe = _LSTransportQueryProxyNameReplyGetOriginExePath(message);
-    const char *concatenated_name = NULL;
+    char *concatenated_name = NULL;
 
     LS_ASSERT(origin_name != NULL);
     LS_ASSERT(service_name != NULL);
@@ -3654,20 +3618,20 @@ _LSTransportSendQuery(const _LSTransportMessage *message, _LSTransportMessageTyp
         !_LSTransportMessageAppendString(&iter, client_unique_name)  ||
         !_LSTransportMessageAppendInvalid(&iter)) {
         LOG_LS_ERROR(MSGID_LS_OOM_ERR, 0, "%s", LS_ERROR_TEXT_OOM);
-        return ret;
-    }
-
-    /* Blocking send a "QueryPid/Uid/Gid/ProcessInfo" message to the hub */
-    ret = _LSTransportSendMessageBlocking(send_message, transport->hub, true, NULL, &lserror);
-    if (!ret) {
-        LOG_LSERROR(MSGID_LS_TRANSPORT_NETWORK_ERR, &lserror);
-        LSErrorFree(&lserror);
         _LSTransportMessageUnref(send_message);
         return ret;
     }
 
-    /* send a query message to the hub */
-    _LSTransportSendMessage(send_message, transport->hub, NULL, &lserror);
+    /* Blocking send a "QueryPid/Uid/Gid/ProcessInfo" message to the hub.
+     * Do not queue the same message a second time afterwards: that made the
+     * hub process every query twice and the stray reply was dispatched to
+     * the user message handler. */
+    ret = _LSTransportSendMessageBlocking(send_message, transport->hub, true, NULL, &lserror);
+    if (!ret) {
+        LOG_LSERROR(MSGID_LS_TRANSPORT_NETWORK_ERR, &lserror);
+        LSErrorFree(&lserror);
+    }
+
     _LSTransportMessageUnref(send_message);
 
     return ret;
@@ -4320,6 +4284,18 @@ _LSTransportReceiveClient(GIOChannel *source, GIOCondition condition,
             ACTIVITY_DEC();
         }
 
+        /* A partially received message holds a ref on the client
+         * (_LSTransportMessageSetClient), forming a client->incoming->tmp_msg
+         * ->client cycle. If the peer disconnects mid-body we must break it
+         * here, otherwise the client is never freed and its socket fd leaks
+         * (a local peer can exhaust the hub's fd table and wedge the bus). */
+        if (incoming->tmp_msg)
+        {
+            _LSTransportMessageUnref(incoming->tmp_msg);
+            incoming->tmp_msg = NULL;
+            incoming->tmp_msg_offset = 0;
+        }
+
         client->state = _LSTransportClientStateDisconnected;
         _LSTransportClientUnref(client);
 
@@ -4882,6 +4858,14 @@ _LSTransportHandleClientInfo(_LSTransportMessage *message)
     _LSTransportClient *client = _LSTransportMessageGetClient(message);
 
     LS_ASSERT(client->service_name == NULL);
+    if (client->service_name != NULL)
+    {
+        /* a peer must not send ClientInfo twice: it would leak the old
+         * name and let the peer change its claimed identity mid-session */
+        LOG_LS_WARNING(MSGID_LS_MSG_ERR, 0,
+                       "Ignoring repeated ClientInfo message");
+        return;
+    }
 
     _LSTransportMessageIterInit(message, &iter);
 
@@ -5639,7 +5623,9 @@ _LSTransportAddPendingMessageWithToken(_LSTransport *transport,
     }
 
     if ((NULL != origin_name) && ('\0' != origin_name[0])) {
-        g_free(concatenated_name);
+        /* only owned when origin_name was non-empty; otherwise it aliases
+         * the borrowed service_name (same condition as the assignment) */
+        g_free((char *)concatenated_name);
     }
 
     return status;
@@ -5890,7 +5876,9 @@ LSTransportSend(_LSTransport *transport, const char *origin_exe,
     } while (false);
 
     if ((NULL != origin_name) && ('\0' != origin_name[0])) {
-        g_free(concatenated_name);
+        /* only owned when origin_name was non-empty; otherwise it aliases
+         * the borrowed service_name (same condition as the assignment) */
+        g_free((char *)concatenated_name);
     }
 
     return status;
@@ -6311,6 +6299,31 @@ _LSTransportProcessIncomingMessages(_LSTransportClient *client, LSError *lserror
 
         /* Handle "internal" messages, otherwise, let the registered handler take over */
         LOG_LS_DEBUG("%s: received message token %d, type: %d, len: %d\n", __func__, (int)tmsg->raw->header.token, (int)tmsg->raw->header.type, (int)tmsg->raw->header.len);
+
+        /* Only the hub may send these control messages. A directly
+         * connected peer that forged e.g. a QueryNameReply carrying an
+         * SCM_RIGHTS fd could install itself in the client map under an
+         * arbitrary service name and intercept all traffic to that
+         * service, or make us treat its socket as the monitor. */
+        switch (_LSTransportMessageGetType(tmsg))
+        {
+            case _LSTransportMessageTypeQueryNameReply:
+            case _LSTransportMessageTypeQueryProxyNameReply:
+            case _LSTransportMessageTypeMonitorConnected:
+            case _LSTransportMessageTypeMonitorNotConnected:
+                if (client->transport->hub && client != client->transport->hub)
+                {
+                    LOG_LS_WARNING(MSGID_LS_MSG_ERR, 1,
+                                   PMLOGKFV("MSG_TYPE", "%d", (int)_LSTransportMessageGetType(tmsg)),
+                                   "Dropping hub-only control message from non-hub peer \"%s\"",
+                                   _LSTransportClientGetUniqueName(client) ? _LSTransportClientGetUniqueName(client) : "(unknown)");
+                    _LSTransportMessageUnref(tmsg);
+                    continue;
+                }
+                break;
+            default:
+                break;
+        }
 
         switch (_LSTransportMessageGetType(tmsg))
         {
@@ -6798,15 +6811,8 @@ bool _LSTransportInitializeTrustLevel(_LSTransport *transport, const char * prov
     LOG_LS_DEBUG("%s : provided_map_json [ %s ]\n", __func__, provided_map_json);
     LOG_LS_DEBUG("%s : required_map_json [ %s ]\n", __func__, required_map_json);
     LS_ASSERT(transport);
-    if ((required_map_json && strlen(required_map_json) > 0)
-         && (provided_map_json && strlen(provided_map_json) > 0))
-    {
-#ifdef DEBUG
-        DumpToFile("transport_c_LSTransportInitializeTrustLevel_provided", provided_map_json, transport);//DEBUG
-        DumpToFile("transport_c_LSTransportInitializeTrustLevel_required", required_map_json, transport);//DEBUG
-#endif
-    }
-    else
+    if (!((required_map_json && strlen(required_map_json) > 0)
+         && (provided_map_json && strlen(provided_map_json) > 0)))
         return true; // Always true currently
 
     JSchemaInfo schemaInfo;
@@ -6822,11 +6828,19 @@ bool _LSTransportInitializeTrustLevel(_LSTransport *transport, const char * prov
         return false;
     }
 
-    // Dispose old Provided groups trust level
+    // Dispose old Provided groups trust level; clear the pointers so no
+    // early return below leaves them dangling (use-after-free in
+    // LSTransportGetTrustFromMask on re-initialization)
     if(transport->provided_trust_level_map)
+    {
         g_hash_table_destroy(transport->provided_trust_level_map);
+        transport->provided_trust_level_map = NULL;
+    }
     if(transport->provided_trust_level_to_group_map)
+    {
         g_slist_free_full(transport->provided_trust_level_to_group_map, (GDestroyNotify) LSTransportTrustLevelGroupBitmaskFree);
+        transport->provided_trust_level_to_group_map = NULL;
+    }
 
    // Provided groups: Create hashmap [trustLevel: code]
     GHashTable *provided_trust_level_map = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
@@ -6849,6 +6863,7 @@ bool _LSTransportInitializeTrustLevel(_LSTransport *transport, const char * prov
                      PMLOGKS("JSON", provided_map_json),
                      "Fail to read JSON: providedGroup or providedTrustForGroup NOT PRESENT : %s\n", provided_map_json);
             g_hash_table_destroy(provided_trust_level_map);
+            j_release(&jmap);
             return true;
         }
 
@@ -7050,7 +7065,7 @@ LSTransportCategoryBitmask *LSTransportCategoryBitmaskNew(const char *pattern,
     // However, the categories are stored without the tailing '/', thus
     // we have to remove it to prepare a correct pattern.
     int len = strlen(pattern);
-    if ((v->match_category_only = pattern[len - 1] == '/'))
+    if ((v->match_category_only = (len > 0 && pattern[len - 1] == '/')))
     {
         if (len > 1 && pattern[len - 1] == '/')
             --len;
@@ -7083,7 +7098,7 @@ LSTransportTrustLevelGroupBitmask *LSTransportTrustLevelBitmaskNew(const char *p
     // However, the categories are stored without the tailing '/', thus
     // we have to remove it to prepare a correct pattern.
     int len = strlen(pattern);
-    if ((v->match_group_only = pattern[len - 1] == '/'))
+    if ((v->match_group_only = (len > 0 && pattern[len - 1] == '/')))
     {
         if (len > 1 && pattern[len - 1] == '/')
             --len;

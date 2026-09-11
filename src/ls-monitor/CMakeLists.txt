@@ -22,7 +22,7 @@ set(PROJECT_SOURCES
     json_output.cpp
     )
 
-webos_add_compiler_flags(ALL --std=c++14)
+webos_add_compiler_flags(ALL --std=c++17)
 
 if (NOT DEFINED WEBOS_TARGET_MACHINE_IMPL OR WEBOS_TARGET_MACHINE_IMPL STREQUAL guest)
 	add_definitions(-DPID_DIR="/tmp")

@@ -25,27 +25,6 @@
 #include "patternqueue.hpp"
 #include "permissions_map.hpp"
 
-#include <fstream>
-
-void DumpToFileActivePerm(const char* filename, const char* dump)
-{
-    if (!filename) return;
-
-    char full_path[256] = {0};
-    strncpy(full_path, "/tmp/", sizeof(full_path) - 1);
-    strncat(full_path, filename, sizeof(full_path) - strlen(full_path) - 1);
-    FILE *fp;
-    // open file for writing 
-    fp = fopen (full_path, "w");
-    if (fp == NULL)
-    {
-        //fprintf(stderr, "\nError opend file\n");
-        return;
-    }
-    fprintf (fp, "%s", dump);
-    fclose(fp);
-}
-
 /// @cond INTERNAL
 /// @addtogroup LunaServiceHubSecurity
 /// @{
@@ -250,9 +229,7 @@ LSHubActivePermissionMapClientAdd(const _LSTransportClient *client, const char *
     {
         LSHubPermissionAddRequired(active_perm.get(), PUBLIC_SECGROUP_NAME);
     }
-    std::string act_perm_dump = LSHubPermissionDump(active_perm.get());
-    DumpToFileActivePerm("act_perm_LSHubActivePermissionMapClientAdd", act_perm_dump.c_str());
-    LOG_LS_DEBUG("%s: act_perm_dump [%s]", __func__, act_perm_dump.c_str());
+    LOG_LS_DEBUG("%s: act_perm_dump [%s]", __func__, LSHubPermissionDump(active_perm.get()).c_str());
     return LSHubActivePermissionMapAddRef(active_perm.get(), active_service_id);
 }
 
