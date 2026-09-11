@@ -701,8 +701,15 @@ _LSMessageTranslateFromCall(_Call *call, LSMessage *reply,
 
         /* FIXME -- need getter for this or make GetBody skip over the
          * reply serial */
-        /* skip over reply serial to get available value */
-        int available = *((int*)(_LSTransportMessageGetBody(msg) + sizeof(LSMessageToken)));
+        /* skip over reply serial to get available value; validate the body
+         * is big enough before reading (it comes from the peer) */
+        const char *ssr_body = _LSTransportMessageGetBody(msg);
+        int available = 0;
+        if (ssr_body &&
+            _LSTransportMessageGetBodySize(msg) >= sizeof(LSMessageToken) + sizeof(int))
+        {
+            memcpy(&available, ssr_body + sizeof(LSMessageToken), sizeof(available));
+        }
 
         /* Initialize connection status with the first reply to signal/registerServerStatus */
         call->is_connected = available;

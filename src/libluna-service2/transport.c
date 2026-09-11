@@ -1544,7 +1544,15 @@ _LSTransportRecvMessageBlocking(_LSTransportClient *client, _LSTransportMessageT
 
     LS_ASSERT(msg_type_match == true);
 
-    LS_ASSERT(header.len < (ULONG_MAX - sizeof(_LSTransportMessageRaw)));
+    /* cap the peer-supplied length like the non-blocking receive path does;
+     * LS_ASSERT alone is a no-op in release builds */
+    if (header.len > MAX_MESSAGE_SIZE_BYTES)
+    {
+        _LSErrorSet(lserror, MSGID_LS_MSG_ERR, -1,
+                    "Blocking receive: message too large (%lu bytes)",
+                    (unsigned long)header.len);
+        goto exit;
+    }
 
     message = _LSTransportMessageNewRef(header.len);
 
