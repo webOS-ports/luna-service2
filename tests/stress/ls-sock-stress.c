@@ -77,6 +77,7 @@ int main(int argc, char **argv)
     }
     const char *path = argv[1];
     long iterations = argc > 2 ? atol(argv[2]) : 2000;
+    int force_case = argc > 3 ? atoi(argv[3]) : -1;  /* -1 = cycle all */
 
     srand((unsigned)time(NULL) ^ (unsigned)getpid());
 
@@ -95,7 +96,7 @@ int main(int argc, char **argv)
         }
         ++connected;
 
-        switch (i % 5)
+        switch (force_case >= 0 ? force_case : (int)(i % 5))
         {
         case 0: /* pure random garbage */
         {

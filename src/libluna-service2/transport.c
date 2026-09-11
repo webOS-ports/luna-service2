@@ -4284,6 +4284,18 @@ _LSTransportReceiveClient(GIOChannel *source, GIOCondition condition,
             ACTIVITY_DEC();
         }
 
+        /* A partially received message holds a ref on the client
+         * (_LSTransportMessageSetClient), forming a client->incoming->tmp_msg
+         * ->client cycle. If the peer disconnects mid-body we must break it
+         * here, otherwise the client is never freed and its socket fd leaks
+         * (a local peer can exhaust the hub's fd table and wedge the bus). */
+        if (incoming->tmp_msg)
+        {
+            _LSTransportMessageUnref(incoming->tmp_msg);
+            incoming->tmp_msg = NULL;
+            incoming->tmp_msg_offset = 0;
+        }
+
         client->state = _LSTransportClientStateDisconnected;
         _LSTransportClientUnref(client);
 
