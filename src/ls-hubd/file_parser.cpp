@@ -570,7 +570,8 @@ namespace {
     /// JSON expected to match that schema. Otherwise behavior is undefined.
     class JParseKeyedStrArrays
     {
-        typedef std::function<void(const std::string &, pbnjson::JInput) noexcept> handler_type;
+        // C++17: noexcept is part of the function type and std::function<R(Args) noexcept> is ill-formed
+        typedef std::function<void(const std::string &, pbnjson::JInput)> handler_type;
 
         bool have_key = false;
         handler_type handler;
