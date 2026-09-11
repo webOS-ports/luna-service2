@@ -374,12 +374,12 @@ _LSSecurityCheckGroup(const LSTransportBitmaskWord *provides,
     if (!provides || !requires)
         return false;
 
-    LOG_LS_DEBUG("[%s]provide : %d, requires : %d \n", __func__, *provides, *requires);
+    LOG_LS_DEBUG("[%s]provide : %lu, requires : %lu \n", __func__, *provides, *requires);
     int i = 0;
     for (; i < size; i++)
     {
         if (provides[i] & requires[i]) {
-            LOG_LS_DEBUG("[%s] Group CHeck pass[provides: %d] [requires: %d][pos: %d] \n",
+            LOG_LS_DEBUG("[%s] Group CHeck pass[provides: %lu] [requires: %lu][pos: %d] \n",
             __func__, provides[i], requires[i], i);
            return true;
         }
@@ -557,7 +557,7 @@ LSCategoryMethodCall(LSHandle *sh, LSCategoryTable *category,
         return LSMessageHandlerResultPermissionDenied;
     }
 
-    LOG_LS_DEBUG("[%s]method_name: %s  method->security_provided_groups: %d, client->security_required_groups: %d, LSTransportGetSecurityMaskSize(sh->transport): %d",
+    LOG_LS_DEBUG("[%s]method_name: %s  method->security_provided_groups: %lu, client->security_required_groups: %lu, LSTransportGetSecurityMaskSize(sh->transport): %zu",
                  __func__, method_name,*method->security_provided_groups, *client->security_required_groups,
                   LSTransportGetSecurityMaskSize(sh->transport));
 
@@ -626,7 +626,7 @@ LSCategoryMethodCall(LSHandle *sh, LSCategoryTable *category,
     {
         ClockGetTime(&end_time);
         ClockDiff(&gap_time, &end_time, &start_time);
-        LOG_LS_DEBUG("TYPE=service handler execution time | TIME=%ld | SERVICE=%s | CATEGORY=%s | METHOD=%s",
+        LOG_LS_DEBUG("TYPE=service handler execution time | TIME=%lld | SERVICE=%s | CATEGORY=%s | METHOD=%s",
                 ClockGetMs(&gap_time), receiver, LSMessageGetCategory(message), method_name);
     }
 
@@ -660,7 +660,7 @@ LSMessageHandlerResult _LSCheckProvidedTrustedGroups(LSHandle *sh,
         jvalue_ref providedGroupTrustLevel = NULL;
         jvalue_ref providedGroupsRef = NULL;
 
-        LOG_LS_DEBUG(MSGID_LS_NOT_AN_ERROR, 0,"Enhanced ACG \n");
+        LOG_LS_DEBUG("Enhanced ACG \n");
         // prepare full methods name for pattern matching
         //char *full_name = g_build_path("/", category_path, m->name, NULL);
         const LSTransportTrustLevelGroupBitmask *TrustLevel_bitmask = NULL;
@@ -689,7 +689,7 @@ LSMessageHandlerResult _LSCheckProvidedTrustedGroups(LSHandle *sh,
                     {
                         if(TrustLevel_bitmask->trustLevel_group_bitmask)
                         {
-                            LOG_LS_DEBUG(MSGID_LS_NOT_AN_ERROR, 0, "[%s] found group bit mask : %d \n", __func__,
+                            LOG_LS_DEBUG("[%s] found group bit mask : %lu \n", __func__,
                                                *TrustLevel_bitmask->trustLevel_group_bitmask);
                             providedGroupTrustLevel = LSTransportGetTrustFromMask(sh->transport,
                                                           TrustLevel_bitmask->trustLevel_group_bitmask);

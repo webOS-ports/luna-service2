@@ -99,7 +99,7 @@ bool ManifestData::ProcessManifest(const pbnjson::JValue &manifest, const std::s
         // Make sure that require map is filled properly while parsing role file
          for (const auto &e : trust_level_required)
         {
-            LOG_LS_DEBUG("%s : for service [%s]", __func__, e.first);
+            LOG_LS_DEBUG("%s : for service [%s]", __func__, e.first.c_str());
                 data.trust_level_required[e.first] = (e.second);
         }
     }
