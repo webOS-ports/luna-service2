@@ -81,6 +81,9 @@ public:
 
     void cancel()
     {
+        if (!_cookie)
+            return;
+
         Error error;
 
         if (!LSCancelServerStatus(_handle, _cookie, error.get()))

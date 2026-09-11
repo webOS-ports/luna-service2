@@ -45,11 +45,21 @@ namespace LS {
 
         bool condition_variable::conditional_timedwait(std::unique_lock<std::mutex>& lock, unsigned int millisec)
         {
+            /* use a local timespec (the member raced between concurrent
+             * waiters) and normalize tv_nsec: an unnormalized value makes
+             * pthread_cond_timedwait fail with EINVAL, which was reported
+             * as an instant spurious timeout */
+            struct timespec ts;
             clock_gettime(CLOCK_MONOTONIC, &ts);
             int sec = millisec / 1000;
-            int nsec = (millisec - (sec * 1000)) * NSEC_PER_MSEC;
+            long nsec = (long)(millisec - (sec * 1000)) * NSEC_PER_MSEC;
             ts.tv_sec +=  sec;
             ts.tv_nsec += nsec;
+            if (ts.tv_nsec >= 1000000000L)
+            {
+                ts.tv_sec += ts.tv_nsec / 1000000000L;
+                ts.tv_nsec %= 1000000000L;
+            }
             pthread_mutex_lock(&internal_mutex);
             lock.unlock();
             if (0 != pthread_cond_timedwait(&cond, &internal_mutex, &ts))

@@ -130,7 +130,10 @@ LSIsRunning(const char *pid_dir, const char *pid_file_name)
     }
 
     g_free(lock_file);
-    close(fd);
+    /* Deliberately keep fd open: the POSIX record lock taken by LSLockFile()
+     * is released on close, so closing here would drop the single-instance
+     * guard the moment this function returns. The fd (and lock) must live
+     * for the lifetime of the process. */
     return false;
 }
 

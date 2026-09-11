@@ -41,9 +41,15 @@ public:
         template<class predicate>
         bool wait_for(std::unique_lock<std::mutex>& lock, unsigned int millisec, predicate P)
         {
-            if (!P())
+            // pthread_cond_timedwait can wake spuriously: re-check the
+            // predicate and keep waiting, never report success with the
+            // predicate still false (callers pop from a queue on success)
+            while (!P())
             {
-               return conditional_timedwait(lock, millisec);
+                if (CW_TIMEOUT == conditional_timedwait(lock, millisec))
+                {
+                    return P() ? CW_NO_TIMEOUT : CW_TIMEOUT;
+                }
             }
             return CW_NO_TIMEOUT;
         }

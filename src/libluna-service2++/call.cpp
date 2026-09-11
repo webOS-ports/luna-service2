@@ -119,6 +119,11 @@ Message Call::waitOnMainLoop(long unsigned int msTimeout)
 
 bool Call::handleReply(LSHandle* sh, LSMessage* reply)
 {
+    // _token/_single/_callCB/_callCtx are mutated from user threads
+    // (continueWith, cancel, move-assignment) under _mutex; read them under
+    // the same lock or a reply may pair a new callback with an old context.
+    // Drop the lock before invoking the callback to avoid self-deadlock.
+    std::unique_lock<std::mutex> lockg { _mutex };
     if (LSMESSAGE_TOKEN_INVALID == _token)
         return false;
 
@@ -129,13 +134,14 @@ bool Call::handleReply(LSHandle* sh, LSMessage* reply)
     {
         auto cb = _callCB;
         auto ctx = _callCtx;
+        lockg.unlock();
 
         (cb)(sh, reply, ctx);
     }
     else
     {
-        std::unique_lock < std::mutex > lockg { _mutex };
         _queue.push(reply);
+        lockg.unlock();
         _cv.notify_one();
     }
     return true;
