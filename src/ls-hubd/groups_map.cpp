@@ -46,7 +46,8 @@ GroupsToString(const Groups& s)
 
 static inline bool is_pattern(const char *str)
 {
-    return str[strlen(str) - 1] == '*';
+    size_t len = strlen(str);
+    return len > 0 && str[len - 1] == '*';
 }
 
 bool GroupsMap::Data::IsEmpty() const

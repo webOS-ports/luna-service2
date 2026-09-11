@@ -28,6 +28,7 @@
 
 #ifdef HAVE_SYS_INOTIFY_H
 #include <sys/inotify.h>
+#include <limits.h>
 #define INOTIFY_MASK    (IN_MODIFY | IN_CREATE | IN_DELETE | IN_MOVE)
 #endif
 #include <mutex>
@@ -384,24 +385,31 @@ ConfigInotifyCallback(GIOChannel *channel, GIOCondition condition, gpointer data
 {
     GError *error = NULL;
 
-    gsize bytes_read;
-    gchar event_buf[256] = {'\0'};
+    gsize bytes_read = 0;
+    /* an inotify read needs room for at least one maximal event or the
+     * kernel fails the read with EINVAL for long file names */
+    gchar event_buf[sizeof(struct inotify_event) + NAME_MAX + 1]
+        __attribute__((aligned(__alignof__(struct inotify_event)))) = {'\0'};
 
-    GIOStatus status = g_io_channel_read_chars(channel, event_buf, sizeof(event_buf)-1, &bytes_read, &error);
+    GIOStatus status = g_io_channel_read_chars(channel, event_buf, sizeof(event_buf), &bytes_read, &error);
 
     if (status != G_IO_STATUS_NORMAL || bytes_read > sizeof(event_buf))
     {
+        /* error is only set for G_IO_STATUS_ERROR; EOF/AGAIN leave it NULL */
         LOG_LS_ERROR(MSGID_LSHUB_INOTIFY_ERR, 2,
-                     PMLOGKFV("ERROR_CODE", "%d", error->code),
-                     PMLOGKS("ERROR", error->message),
-                     "Error reading inotify event: \"%s\"", error->message);
-        g_error_free(error);
+                     PMLOGKFV("ERROR_CODE", "%d", error ? error->code : 0),
+                     PMLOGKS("ERROR", error ? error->message : "none"),
+                     "Error reading inotify event (status %d)", (int)status);
+        if (error)
+            g_error_free(error);
         return TRUE;
     }
 
     size_t offset = 0;
 
-    while (offset < bytes_read - sizeof(struct inotify_event))
+    /* keep the comparison in unsigned-safe form: bytes_read smaller than
+     * one event header must not underflow */
+    while (offset + sizeof(struct inotify_event) <= bytes_read)
     {
         struct inotify_event *event = (struct inotify_event*)&event_buf[offset];
 

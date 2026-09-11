@@ -1050,10 +1050,32 @@ _LSHubHandleRequestName(_LSTransportMessage *message)
         return false;
     }
 
+    /* reject a client that already requested a name: a second RequestName
+     * would orphan the first _ClientId in the pending/by_unique_name maps
+     * and let the client change its identity mid-session */
+    if (_LSTransportClientGetUniqueName(client))
+    {
+        LOG_LS_ERROR(MSGID_LSHUB_CLIENT_ERROR, 0,
+                     "Client \"%s\" sent RequestName twice",
+                     _LSTransportClientGetUniqueName(client));
+        _LSHubSendRequestNameError(client, LS_TRANSPORT_REQUEST_NAME_PERMISSION_DENIED);
+        return false;
+    }
+
     /* get service name */
     const char *service_name = nullptr;
     _LSTransportMessageIterNext(&iter);
     _LSTransportMessageGetString(&iter, &service_name);
+
+    /* service names are used in maps, redirection matching and file paths
+     * derived from roles: reject embedded path separators and wildcards */
+    if (service_name && strpbrk(service_name, "/\\*?"))
+    {
+        LOG_LS_ERROR(MSGID_LSHUB_CLIENT_ERROR, 0,
+                     "Rejecting service name with invalid characters");
+        _LSHubSendRequestNameError(client, LS_TRANSPORT_REQUEST_NAME_PERMISSION_DENIED);
+        return false;
+    }
 
     /* get application id */
     const char *app_id = nullptr;
@@ -2579,6 +2601,14 @@ _LSHubHandleQueryName(_LSTransportMessage *message)
 
     const char *requested_service_name = _LSTransportMessageTypeQueryNameGetQueryName(message);
     LS_ASSERT(requested_service_name != NULL);
+    if (!requested_service_name)
+    {
+        /* malformed query from an untrusted peer; LS_ASSERT is a no-op in
+         * release builds and std::string(NULL) below would crash the hub */
+        LOG_LS_ERROR(MSGID_LSHUB_CLIENT_ERROR, 0,
+                     "QueryName message without a service name");
+        return;
+    }
 
     /* If the message originated from a application service, we will get a non-NULL appId
      * from this call. */
@@ -3590,6 +3620,14 @@ _LSHubHandleQueryServiceStatus(const _LSTransportMessage *message)
     _LSTransportMessageIterInit((_LSTransportMessage*)message, &iter);
     _LSTransportMessageGetString(&iter, &service_name);
 
+    if (!service_name)
+    {
+        /* malformed message: g_str_hash(NULL) would crash the hub */
+        LOG_LS_ERROR(MSGID_LSHUB_CLIENT_ERROR, 0,
+                     "QueryServiceStatus message without a service name");
+        return;
+    }
+
     available = g_hash_table_lookup(available_services, service_name) ? 1 : 0;
     if (available == 0)
     {
@@ -3739,6 +3777,15 @@ _LSHubHandleQueryServiceCategory(const _LSTransportMessage *message)
     _LSTransportMessageIterNext(&iter);
     _LSTransportMessageGetString(&iter, &category);
     _LSTransportMessageIterNext(&iter);
+
+    if (!service_name)
+    {
+        /* malformed message: g_str_hash(NULL) would crash the hub */
+        LOG_LS_ERROR(MSGID_LSHUB_CLIENT_ERROR, 0,
+                     "QueryServiceCategory message without a service name");
+        send_service_category_reply(message, "{}");
+        return;
+    }
 
     /* look up service name in available list */
     _ClientId *id = static_cast<_ClientId *>(g_hash_table_lookup(available_services, service_name));
@@ -4022,6 +4069,15 @@ _LSHubAppendCategory(const char *service_name, const char *category,
 {
     _ClientId *id = static_cast<_ClientId *>(g_hash_table_lookup(available_services, service_name));
     LS_ASSERT(id);
+    if (!id)
+    {
+        /* client sent AppendCategory before completing registration
+         * (NodeUp); don't crash the hub on it */
+        LOG_LS_ERROR(MSGID_LSHUB_CLIENT_ERROR, 0,
+                     "AppendCategory for unavailable service");
+        g_slist_free_full(methods, g_free);
+        return;
+    }
 
     // TODO: Is locking required?
     if (!id->categories)
@@ -4084,6 +4140,14 @@ _LSHubHandleAppendCategory(_LSTransportMessage *message)
     LS_ASSERT(_LSTransportMessageGetType(message) == _LSTransportMessageTypeAppendCategory);
 
     const char *service_name = _LSTransportClientGetServiceName(_LSTransportMessageGetClient(message));
+    if (!service_name)
+    {
+        /* anonymous clients have no registered categories; a NULL name
+         * would crash g_str_hash in the category map lookup */
+        LOG_LS_ERROR(MSGID_LSHUB_CLIENT_ERROR, 0,
+                     "AppendCategory from a client without a service name");
+        return;
+    }
 
     _LSTransportMessageIter iter;
     _LSTransportMessageIterInit(message, &iter);
@@ -4092,6 +4156,12 @@ _LSHubHandleAppendCategory(_LSTransportMessage *message)
     const char *category = NULL;
     _LSTransportMessageGetString(&iter, &category);
     LS_ASSERT(category);
+    if (!category)
+    {
+        LOG_LS_ERROR(MSGID_LSHUB_CLIENT_ERROR, 0,
+                     "AppendCategory without a category string");
+        return;
+    }
     _LSTransportMessageIterNext(&iter);
 
     GSList *method_list = NULL;
@@ -4100,6 +4170,8 @@ _LSHubHandleAppendCategory(_LSTransportMessage *message)
         const char *method_name = NULL;
         _LSTransportMessageGetString(&iter, &method_name);
         LS_ASSERT(method_name);
+        if (!method_name)
+            continue;
         method_list = g_slist_prepend(method_list, g_strdup(method_name));
     }
 

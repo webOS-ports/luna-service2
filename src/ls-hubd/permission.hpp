@@ -61,7 +61,9 @@ public:
 
     void erase(const char *group)
     {
-        Base::erase(std::find(begin(), end(), group));
+        auto it = std::find(begin(), end(), group);
+        if (it != end())  // erasing end() is undefined behavior
+            Base::erase(it);
     }
 
     bool operator== (const Groups& other) const
@@ -94,7 +96,9 @@ public:
 
     void erase(const char *trust_level)
     {
-        Base::erase(std::find(begin(), end(), trust_level));
+        auto it = std::find(begin(), end(), trust_level);
+        if (it != end())  // erasing end() is undefined behavior
+            Base::erase(it);
     }
 
     bool operator== (const TrustLevel& other) const
