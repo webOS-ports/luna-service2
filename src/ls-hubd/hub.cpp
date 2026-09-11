@@ -2873,6 +2873,12 @@ _LSHubHandleSignalUnregister(_LSTransportMessage *message)
     LOG_LS_DEBUG("%s: category: \"%s\", method: \"%s\", client: %p\n", __func__, category, method, client);
 
     LS_ASSERT(category != NULL);
+    if (!category || !method)
+    {
+        LOG_LS_ERROR(MSGID_LSHUB_CLIENT_ERROR, 0,
+                     "SignalUnregister without category/method");
+        return;
+    }
 
     /* if method, remove from category/method hash */
     if (method[0] != '\0')
@@ -3035,6 +3041,15 @@ _LSHubHandleSignalRegister(_LSTransportMessage* message)
     LOG_LS_DEBUG("%s: category: \"%s\", method: \"%s\", client: %p\n", __func__, category, method, client);
 
     LS_ASSERT(category != NULL);
+    /* category/method come from a peer message and can be NULL for a
+     * malformed SignalRegister; LS_ASSERT is a no-op in release builds and
+     * the code below (and the permission check) dereference both */
+    if (!category || !method)
+    {
+        LOG_LS_ERROR(MSGID_LSHUB_CLIENT_ERROR, 0,
+                     "SignalRegister without category/method");
+        return;
+    }
 
     if (!LSHubIsClientAllowedToSubscribeSignal(client, category, method))
     {
@@ -3106,6 +3121,13 @@ _LSHubHandleSignal(_LSTransportMessage *message, bool generated_by_hub)
 
     LS_ASSERT(category != NULL);
     LS_ASSERT(method != NULL);
+    /* a peer-sent signal can carry a malformed body: don't crash on NULL */
+    if (!category || !method)
+    {
+        LOG_LS_ERROR(MSGID_LSHUB_CLIENT_ERROR, 0,
+                     "Signal without category/method");
+        return;
+    }
 
     if (!generated_by_hub && !LSHubIsClientAllowedToSendSignal(_LSTransportMessageGetClient(message),
                                                                category, method))

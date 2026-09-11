@@ -867,6 +867,9 @@ LSHubIsClientAllowedToSendSignal(_LSTransportClient *client, const char *categor
 {
     LS_ASSERT(client != NULL);
 
+    if (!category || !method)
+        return false;
+
     if (!g_conf_security_enabled)
     {
         return true;
@@ -895,6 +898,9 @@ LSHubIsClientAllowedToSendSignal(_LSTransportClient *client, const char *categor
 bool LSHubIsClientAllowedToSubscribeSignal(_LSTransportClient *client, const char *category, const char *method)
 {
     LS_ASSERT(client != NULL);
+
+    if (!category || !method)
+        return false;
 
     if (!g_conf_security_enabled)
     {
