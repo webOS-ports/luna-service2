@@ -1469,7 +1469,7 @@ void SecurityData::LoadManifestData(ManifestData &&data)
         services.Add(std::move(service));
     }
 
-    for (const auto &item : data.requires)
+    for (const auto &item : data.requires_)
     {
         const std::string &name = item.first;
         for (const auto &group : item.second)
@@ -1546,7 +1546,7 @@ void SecurityData::UnloadManifestData(ManifestData &&data)
         services.Remove((const char**)service->service_names, service->num_services);
     }
 
-    for (const auto &item : data.requires)
+    for (const auto &item : data.requires_)
     {
         const std::string& name = item.first;
         for (const auto &group : item.second)

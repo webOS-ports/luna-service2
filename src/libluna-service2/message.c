@@ -665,7 +665,7 @@ void validate_reply(LSMessage *msg, const char *reply)
         {
             strcat(from, "/");
         }
-        strncat(from, kind, strlen(kind));
+        strcat(from, kind); /* buffer is sized for service + '/' + kind + NUL */
     }
 
     jvalue_ref parsed = jdom_parse(j_cstr_to_buffer(reply),

@@ -47,6 +47,13 @@
 #include <pmtrace_ls2.h>
 
 #define ENHANCED_ACG
+/* glib 2.70 renamed the pattern-match functions */
+#if GLIB_CHECK_VERSION(2, 70, 0)
+#define ls_pattern_match_string(spec, str) g_pattern_spec_match_string((spec), (str))
+#else
+#define ls_pattern_match_string(spec, str) g_pattern_match_string((spec), (str))
+#endif
+
 #define DEFAULT_TRUST_LEVEL "dev"
 
 /** @cond INTERNAL */
@@ -55,7 +62,6 @@
 void _LSHandleMessageFailure(_LSTransportMessage *message, _LSTransportMessageFailureType failure_type, void *context);
 void _LSDisconnectHandler(_LSTransportClient *client, _LSTransportDisconnectType type, void *context);
 bool _LSHandleReply(LSHandle *sh, _LSTransportMessage *transport_msg);
-extern inline const _char8_t* getBaseFileName_(void);
 #ifdef ENHANCED_ACG
 static LSMessageHandlerResult _LSCheckProvidedTrustedGroups(LSHandle *sh,
     _LSTransportClient *client, LSMethodEntry *method);
@@ -685,7 +691,7 @@ LSMessageHandlerResult _LSCheckProvidedTrustedGroups(LSHandle *sh,
                     /* Ignore such groups while checking for trust level */
                     LOG_LS_DEBUG("[%s] providedGroup: %s \n", __func__, providedGroup);
 
-                    if (g_pattern_match_string(TrustLevel_bitmask->group_pattern, providedGroup))
+                    if (ls_pattern_match_string(TrustLevel_bitmask->group_pattern, providedGroup))
                     {
                         if(TrustLevel_bitmask->trustLevel_group_bitmask)
                         {

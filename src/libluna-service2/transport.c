@@ -2884,7 +2884,7 @@ _LSTransportHandleQueryProxyNameFailure(_LSTransportMessage *message, long err_c
         return;
     }
 
-    const char *concatenated_name = g_strconcat(origin_name, ":", service_name, NULL);
+    char *concatenated_name = g_strconcat(origin_name, ":", service_name, NULL);
 
     /* error case */
     _LSTransport *transport = _LSTransportMessageGetClient(message)->transport;
@@ -3037,7 +3037,7 @@ _LSTransportHandleQueryProxyNameReply(_LSTransportMessage *message) {
     const char *origin_name = _LSTransportQueryProxyNameReplyGetOriginName(message);
     const char *origin_id = _LSTransportQueryProxyNameReplyGetOriginId(message);
     const char *origin_exe = _LSTransportQueryProxyNameReplyGetOriginExePath(message);
-    const char *concatenated_name = NULL;
+    char *concatenated_name = NULL;
 
     LS_ASSERT(origin_name != NULL);
     LS_ASSERT(service_name != NULL);
@@ -5611,7 +5611,9 @@ _LSTransportAddPendingMessageWithToken(_LSTransport *transport,
     }
 
     if ((NULL != origin_name) && ('\0' != origin_name[0])) {
-        g_free(concatenated_name);
+        /* only owned when origin_name was non-empty; otherwise it aliases
+         * the borrowed service_name (same condition as the assignment) */
+        g_free((char *)concatenated_name);
     }
 
     return status;
@@ -5862,7 +5864,9 @@ LSTransportSend(_LSTransport *transport, const char *origin_exe,
     } while (false);
 
     if ((NULL != origin_name) && ('\0' != origin_name[0])) {
-        g_free(concatenated_name);
+        /* only owned when origin_name was non-empty; otherwise it aliases
+         * the borrowed service_name (same condition as the assignment) */
+        g_free((char *)concatenated_name);
     }
 
     return status;

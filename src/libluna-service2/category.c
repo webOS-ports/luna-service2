@@ -27,6 +27,13 @@
 
 #include <pthread.h>
 
+/* glib 2.70 renamed the pattern-match functions */
+#if GLIB_CHECK_VERSION(2, 70, 0)
+#define ls_pattern_match_string(spec, str) g_pattern_spec_match_string((spec), (str))
+#else
+#define ls_pattern_match_string(spec, str) g_pattern_match_string((spec), (str))
+#endif
+
 /**
  * @cond INTERNAL
  * @addtogroup LunaServiceInternals
@@ -460,7 +467,7 @@ LSRegisterCategoryAppend(LSHandle *sh, const char *category,
                 {
                     const LSTransportCategoryBitmask *category_bitmask = (const LSTransportCategoryBitmask *) list->data;
 
-                    if (g_pattern_match_string(category_bitmask->category_pattern,
+                    if (ls_pattern_match_string(category_bitmask->category_pattern,
                                                category_bitmask->match_category_only ? category_path : full_name))
                     {
                         BitMaskBitwiseOr(entry->security_provided_groups,

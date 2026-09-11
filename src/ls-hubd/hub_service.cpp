@@ -493,7 +493,7 @@ std::string HubService::QueryServicePermissions(_LSTransportMessage *message, co
         LSHubActivePermissionMapLookup(service_name.c_str());
     if (active_perm)
     {
-        return RespondServicePermissions(active_perm->provides, active_perm->requires);
+        return RespondServicePermissions(active_perm->provides, active_perm->requires_);
     }
 
     // Query permissions from the security data

@@ -161,7 +161,7 @@ bool ManifestData::ProcessManifest(const pbnjson::JValue &manifest, const std::s
 
         for (const auto &child : reqs)
         {
-            data.requires[child.first].insert(child.second);
+            data.requires_[child.first].insert(child.second);
         }
     }
 
@@ -322,7 +322,7 @@ void ExternalManifestData::LoadFromMemory()
         {
             for (const auto &child : reqs)
             {
-                requires[child.first].insert(child.second);
+                requires_[child.first].insert(child.second);
             }
         }
     }

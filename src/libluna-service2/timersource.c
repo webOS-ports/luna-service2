@@ -25,6 +25,10 @@
  * 3) Uses a montonic clock.
  */
 
+/* This source's API is built around GTimeVal; silence the glib deprecation
+ * until the timer source is ported to gint64 monotonic time. */
+#define GLIB_DISABLE_DEPRECATION_WARNINGS 1
+
 #include <glib.h>
 
 #include "timersource.h"

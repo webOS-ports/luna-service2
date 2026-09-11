@@ -1177,35 +1177,15 @@ _LSHubHandleRequestName(_LSTransportMessage *message)
 }
 
 static std::string
-_LSHubGetRequiredTrustsByName(const char *origin_exe, const char *origin_id, const char *origin_name) {
-
-    const LSHubRole *role = nullptr;
-    if (origin_id) {
-        // look-up in all roles by app-id
-        role = SecurityData::CurrentSecurityData().roles.Lookup(origin_id);
-    } else if (origin_exe) {
-        role = SecurityData::CurrentSecurityData().roles.Lookup(origin_exe);
-    }
-
-    bool is_devmode = !role || LSHubRoleGetType(role) == LSHubRoleTypeDevmode;
-    pbnjson::JValue jval = pbnjson::Array();
-    std::string trust;
-
-    {
-        GroupsMap &groups = SecurityData::CurrentSecurityData().groups;
-        trust = groups.GetRequiredTrustAsString(origin_name);
-        LOG_LS_DEBUG("[%s] trust: %s \n", __func__, trust.c_str());
-        {
-            jval << pbnjson::JValue(trust);
-        }
-    }
-
-    std::string jval_str = pbnjson::JGenerator::serialize(jval, true);
-    if (!g_conf_security_enabled) {
-        // If security is disabled, all the API belong to the same group "TOTUM" (lat. everything),
-        // and every service `requires' that group to function.
-        jval_str = R"(["TOTUM"])";
-    }
+_LSHubGetRequiredTrustsByName(const char * /*origin_exe*/, const char * /*origin_id*/, const char *origin_name) {
+    // NOTE: unlike the required-groups path, the trust level is returned
+    // unfiltered - upstream computed a devmode flag and a JSON array here
+    // but never used either, so that dead code has been removed. If trust
+    // levels ever need the devmode restriction, mirror
+    // _LSHubGetRequiredGroupsByName.
+    GroupsMap &groups = SecurityData::CurrentSecurityData().groups;
+    std::string trust = groups.GetRequiredTrustAsString(origin_name);
+    LOG_LS_DEBUG("[%s] trust: %s \n", __func__, trust.c_str());
     return trust;
 }
 
@@ -1232,20 +1212,9 @@ _LSHubGetRequiredTrusts(const _LSTransportClient *client)
         return "";
     }
 
-    // Ensure restricted in devmode agents (like luna-send-pub) can't call private API.
-    const LSHubRole *role = nullptr;
-    if (client->app_id)
-    {
-        // look-up in all roles by app-id
-        role = SecurityData::CurrentSecurityData().roles.Lookup(client->app_id);
-    }
-    else
-    {
-        role = LSHubActiveRoleMapLookup(_LSTransportCredGetPid(_LSTransportClientGetCred(client)));
-    }
-
-    bool is_devmode = !role || LSHubRoleGetType(role) == LSHubRoleTypeDevmode;
-    pbnjson::JValue jval = pbnjson::Array();
+    // NOTE: the trust level is returned unfiltered (see
+    // _LSHubGetRequiredTrustsByName) - the devmode flag and JSON array the
+    // upstream code computed here were never used.
     std::string trust;
 
 #ifdef SECURITY_HACKS_ENABLED
@@ -1253,24 +1222,13 @@ _LSHubGetRequiredTrusts(const _LSTransportClient *client)
     {
 #endif
     // Client will be having only 1 trust level
-    //for (const auto& trust : LSHubPermissionGetRequiredTrust(active_perm))
     {
        trust = LSHubPermissionGetRequiredTrustAsString(active_perm);
        LOG_LS_DEBUG("[%s] trust: %s \n", __func__, trust.c_str());
-       {
-           jval << pbnjson::JValue(trust);
-       }
     }
 #ifdef SECURITY_HACKS_ENABLED
     }
 #endif
-    std::string jval_str = pbnjson::JGenerator::serialize(jval, true);
-    if (!g_conf_security_enabled)
-    {
-        // If security is disabled, all the API belong to the same group "TOTUM" (lat. everything),
-        // and every service `requires' that group to function.
-        jval_str = R"(["TOTUM"])";
-    }
     return trust;
 }
 
@@ -1368,15 +1326,6 @@ _LSHubGetRequiredGroups(const _LSTransportClient *client)
     }
 
     return jval_str;
-}
-
-static std::string
-_LSHubGetRequiredTrustLevelAsString(const _LSTransportClient *client)
-{
-    std::string retVal = _LSTransportClientGetTrustString(client);
-    std::string serviceName = _LSTransportClientGetServiceName(client);
-    std::string appId = _LSTransportClientGetApplicationId(client);
-    return retVal;
 }
 
 static bool
@@ -3390,7 +3339,6 @@ GetCredentialInfo(_LSTransportMessage *message)
     _LSTransportMessageIter iter;
     const char *service_name = nullptr;
     const char *unique_name = nullptr;
-    const _LSTransportCred* cred = nullptr;
     _ClientId* client_id = nullptr;
 
     // get the service name and unique name from transport message

@@ -81,7 +81,7 @@ _LSHubTrustLevelsToString(const TrustLevel& s)
 std::string
 LSHubPermissionRequiresToString(const LSHubPermission* perm)
 {
-    return _LSHubGroupsToString(perm->requires);
+    return _LSHubGroupsToString(perm->requires_);
 }
 
 std::string
@@ -329,7 +329,7 @@ LSHubPermissionAddRequired(LSHubPermission *perm, const char *group_name)
 
     LOG_LS_DEBUG("%s: add required group: \"%s\"", __func__, group_name);
 
-    perm->requires.push_back(g_intern_string(group_name));
+    perm->requires_.push_back(g_intern_string(group_name));
     return true;
 }
 
