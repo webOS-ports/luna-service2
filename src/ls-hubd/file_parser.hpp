@@ -53,7 +53,6 @@ private:
     std::vector<std::string> _files;
 };
 void DumpTrustMap(const TrustMap &trust_level, std::string &dump);
-void DumpTrustMapToFile(std::string filename,ServiceToTrustMap &trust_level, std::string title);
 std::string extract_filename(const std::string& filepath);
 
 bool ProcessDirectory(const char *dir, void* ctx, LSError *lserror);

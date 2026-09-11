@@ -54,63 +54,6 @@ typedef struct _LSTransportMessageFailureItem
     _LSTransportMessageFailureType failure_type;    /**< type of failure */
 } _LSTransportMessageFailureItem;
 
-#ifdef DEBUG
-void DumpToFile(const char* filename, const char* dump, _LSTransport *transport)
-{
-    if (!filename) return;
-
-    if(strstr(dump, "[]") != NULL) return;
-
-    char full_path[1024] = {0};
-    char title[1024] = {0};
-
-    strncpy(full_path, "/tmp/", sizeof(full_path) - 1);
-    strncat(full_path, filename, sizeof(full_path) - strlen(full_path) - 1);
-    strncat(full_path, "_", sizeof(full_path) - strlen(full_path) - 1);
-
-    if (transport->service_name && strlen(transport->service_name) > 0)
-    {
-        strncpy(title, "ServiceName: ", sizeof(title) - strlen(title) - 1);
-        strncat(title, transport->service_name, sizeof(title) - strlen(title) - 1);
-        strncat(title, "\n", sizeof(title) - strlen(title) - 1);
-        strncat(full_path, transport->service_name, sizeof(full_path) - strlen(full_path) - 1);
-        strncat(full_path, "_", sizeof(full_path) - strlen(full_path) - 1);
-    }
-
-    if (transport->app_id && strlen(transport->app_id) > 0)
-    {
-        strncat(title, "AppID: ", sizeof(title) - strlen(title) - 1);
-        strncat(title, transport->app_id, sizeof(title) - strlen(title) - 1);
-        strncat(title, "\n", sizeof(title) - strlen(title) - 1);
-        strncat(full_path, transport->app_id, sizeof(full_path)- strlen(full_path) - 1);
-        strncat(full_path, "_", sizeof(full_path)- strlen(full_path) - 1);
-    }
-
-    if (transport->unique_name && strlen(transport->unique_name) > 0)
-    {
-        strncat(title, "UniqueName: ", sizeof(title) - strlen(title) - 1);
-        strncat(title, transport->unique_name, sizeof(title) - strlen(title) - 1);
-        strncat(title, "\n", sizeof(title) - strlen(title) - 1);
-        strncat(full_path, transport->unique_name, sizeof(full_path) - strlen(full_path) - 1);
-        strncat(full_path, "_", sizeof(full_path)- strlen(full_path) - 1);
-    }
-
-    FILE *fp;
-    // open file for writing
-    fp = fopen (full_path, "w");
-    if (fp == NULL)
-    {
-        //fprintf(stderr, "\nError opend file\n");
-        return;
-    }
-    fprintf(fp, "%s", title);
-    fprintf(fp, "\n");
-    fprintf (fp, "%s", dump);
-    fprintf(fp, "\n");
-    fclose(fp);
-}
-#endif
-
 bool _LSTransportProcessIncomingMessages(_LSTransportClient *client, LSError *lserror);
 
 
@@ -2014,11 +1957,6 @@ _LSTransportRequestName(const char *requested_name,
             _LSTransportInitializeTrustLevel(client->transport, trust_provided_map_json, strlen(trust_provided_map_json)
                                                              , trust_required_map_json, strlen(trust_required_map_json)
                                                              , trust_level_string, strlen(trust_level_string));
-#ifdef DEBUG
-        DumpToFile("transport_c__LSTransportRequestName_trust_provided_map_json", trust_provided_map_json, client->transport);
-        DumpToFile("transport_c__LSTransportRequestName_trust_required_map_json", trust_required_map_json, client->transport);
-        //DumpToFile("transport_c__LSTransportRequestName_trust_level_string", trust_level_string, client->transport);
-#endif
         }
 
         /* need copy since iterator points inside message */
@@ -6798,15 +6736,8 @@ bool _LSTransportInitializeTrustLevel(_LSTransport *transport, const char * prov
     LOG_LS_DEBUG("%s : provided_map_json [ %s ]\n", __func__, provided_map_json);
     LOG_LS_DEBUG("%s : required_map_json [ %s ]\n", __func__, required_map_json);
     LS_ASSERT(transport);
-    if ((required_map_json && strlen(required_map_json) > 0)
-         && (provided_map_json && strlen(provided_map_json) > 0))
-    {
-#ifdef DEBUG
-        DumpToFile("transport_c_LSTransportInitializeTrustLevel_provided", provided_map_json, transport);//DEBUG
-        DumpToFile("transport_c_LSTransportInitializeTrustLevel_required", required_map_json, transport);//DEBUG
-#endif
-    }
-    else
+    if (!((required_map_json && strlen(required_map_json) > 0)
+         && (provided_map_json && strlen(provided_map_json) > 0)))
         return true; // Always true currently
 
     JSchemaInfo schemaInfo;

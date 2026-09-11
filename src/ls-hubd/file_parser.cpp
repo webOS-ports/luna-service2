@@ -790,28 +790,6 @@ ParseJSONGetRequiredPermissions(const pbnjson::JValue &json, const std::string &
     }
 }
 
-void DumpTrustMapToFile(std::string filename, ServiceToTrustMap &trust_level, std::string title)
-{
-    if (filename.empty()) return;
-    if (trust_level.size() == 0) return;
-    std::ofstream file;
-    std::string name = "/tmp/" + std::string(filename);
-    file.open(name);
-    if(file.is_open())
-    {
-        file << "TrustMap for => " << title << std::endl;
-        std::string trustmap;
-        for(const auto& e : trust_level)
-        {
-            file << "Service Name: " << e.first << std::endl;
-            std::string dump;
-            DumpTrustMap(e.second, dump);
-            file << dump << std::endl;
-        }
-        file.close();
-    }
-}
-
 void DumpTrustMap(const TrustMap &trust_level, std::string &dump)
 {
     for(const auto& e : trust_level)

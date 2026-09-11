@@ -53,18 +53,9 @@
 #include "service.hpp"
 #include "hub_service.hpp"
 
-#include <fstream>
 #include <iostream>
 #include <systemd/sd-daemon.h>
 #include <utility>
-
-template <typename Arg, typename... Args>
-void DumpToFile(std::ostream& out, Arg&& arg, Args&&... args)
-{
-    out << std::forward<Arg>(arg);
-    using expander = int[];
-    (void)expander{0, (void(out << std::endl << std::endl << std::forward<Args>(args)), 0)...};
-}
 
 #ifdef SECURITY_HACKS_ENABLED
 #include "security_hacks.h"
@@ -954,19 +945,6 @@ _LSHubSendRequestNameReply(_LSTransportClient *client, const char *unique_name, 
     {
         LOG_LS_ERROR(MSGID_LS_OOM_ERR, 0, "%s", LS_ERROR_TEXT_OOM);
         return;
-    }
-
-    if((strstr(trust_provided_str.c_str(), "[]") == NULL) &&
-        (strstr(trust_required_str.c_str(), "[]") == NULL))
-    {
-        std::ofstream file;
-        std::string name = "/tmp/" + std::string("hub_LSHubSendRequestNameReply" + service_name);
-        file.open(name);
-        if(file.is_open())
-        {
-           DumpToFile(file, trust_provided_str, trust_required_str, trust_as_string);
-           file.close();
-        }
     }
 
     LOG_LS_DEBUG("%s : trust_provided_str.c_str() [ %s ]", __func__, trust_provided_str.c_str());
