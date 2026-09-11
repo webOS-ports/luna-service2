@@ -2441,10 +2441,20 @@ _LSTransportMessageIterGetArgLen(_LSTransportMessageIter *iter)
     }
 
     /* len comes from an untrusted peer: keep it unsigned so huge values
-     * cannot pass the bounds check as negative ints */
+     * cannot pass the bounds check as negative ints, and bound it by the
+     * bytes remaining AFTER the argument header (len counts the payload
+     * that follows the header, so comparing against the total remaining
+     * bytes over-allowed it by the header size) */
     uint32_t len = ((_LSTransportMessageArgHeader*)(iter->actual_iter))->len;
 
-    if (len <= (uint32_t)_LSTransportMessageIterBytesRemaining(iter))
+    int header_size = _LSTransportMessageGetArgHeaderSize(iter);
+    int remaining = _LSTransportMessageIterBytesRemaining(iter);
+    if (header_size < 0 || remaining < header_size)
+    {
+        return -1;
+    }
+
+    if (len <= (uint32_t)(remaining - header_size))
     {
         return (int)len;
     }
@@ -2483,10 +2493,20 @@ _LSTransportMessageIterGetArgStrLen(_LSTransportMessageIter *iter)
         return -1;
     }
 
-    /* untrusted length: unsigned comparison, see _LSTransportMessageIterGetArgLen */
+    /* untrusted length: unsigned comparison, and the string bytes start
+     * after the full string header, so bound str_len by what actually
+     * remains after that header (found by fuzzing: a str_len between
+     * remaining-12 and remaining passed the old check and produced an
+     * out-of-bounds read of value[str_len - 1]) */
     uint32_t len = ((_LSTransportMessageArgStringHeader*)(iter->actual_iter))->str_len;
 
-    if (len <= (uint32_t)_LSTransportMessageIterBytesRemaining(iter))
+    int remaining = _LSTransportMessageIterBytesRemaining(iter);
+    if (remaining < (int)sizeof(_LSTransportMessageArgStringHeader))
+    {
+        return -1;
+    }
+
+    if (len <= (uint32_t)(remaining - sizeof(_LSTransportMessageArgStringHeader)))
     {
         return (int)len;
     }
