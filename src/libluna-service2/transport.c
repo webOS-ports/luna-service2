@@ -6284,6 +6284,31 @@ _LSTransportProcessIncomingMessages(_LSTransportClient *client, LSError *lserror
         /* Handle "internal" messages, otherwise, let the registered handler take over */
         LOG_LS_DEBUG("%s: received message token %d, type: %d, len: %d\n", __func__, (int)tmsg->raw->header.token, (int)tmsg->raw->header.type, (int)tmsg->raw->header.len);
 
+        /* Only the hub may send these control messages. A directly
+         * connected peer that forged e.g. a QueryNameReply carrying an
+         * SCM_RIGHTS fd could install itself in the client map under an
+         * arbitrary service name and intercept all traffic to that
+         * service, or make us treat its socket as the monitor. */
+        switch (_LSTransportMessageGetType(tmsg))
+        {
+            case _LSTransportMessageTypeQueryNameReply:
+            case _LSTransportMessageTypeQueryProxyNameReply:
+            case _LSTransportMessageTypeMonitorConnected:
+            case _LSTransportMessageTypeMonitorNotConnected:
+                if (client->transport->hub && client != client->transport->hub)
+                {
+                    LOG_LS_WARNING(MSGID_LS_MSG_ERR, 1,
+                                   PMLOGKFV("MSG_TYPE", "%d", (int)_LSTransportMessageGetType(tmsg)),
+                                   "Dropping hub-only control message from non-hub peer \"%s\"",
+                                   _LSTransportClientGetUniqueName(client) ? _LSTransportClientGetUniqueName(client) : "(unknown)");
+                    _LSTransportMessageUnref(tmsg);
+                    continue;
+                }
+                break;
+            default:
+                break;
+        }
+
         switch (_LSTransportMessageGetType(tmsg))
         {
             case _LSTransportMessageTypeQueryNameReply:
