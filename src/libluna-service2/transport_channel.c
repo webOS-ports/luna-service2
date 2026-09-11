@@ -118,6 +118,8 @@ _LSTransportChannelInit(_LSTransportChannel *channel, int fd, int priority)
     if (pthread_mutex_init(&channel->send_watch_lock, NULL))
     {
         LOG_LS_ERROR(MSGID_LS_MUTEX_ERR, 0, "Could not initialize mutex");
+        g_io_channel_unref(channel->channel);
+        channel->channel = NULL;
         return false;
     }
 

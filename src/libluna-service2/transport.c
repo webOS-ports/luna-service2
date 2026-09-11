@@ -1718,7 +1718,23 @@ _LSTransportHandleMonitor(_LSTransportMessage *message)
 
     LOG_LS_DEBUG("%s: connecting to monitor: %s\n", __func__, unique_name);
 
-    transport->monitor = _LSTransportConnectClient(transport, NULL, unique_name, dup(_LSTransportMessageGetFd(message)), NULL, _LSClientAllowBoth, &lserror);
+    if (transport->monitor)
+    {
+        /* don't leak the previous monitor client reference if the hub
+         * announces a new monitor */
+        _LSTransportClientUnref(transport->monitor);
+        transport->monitor = NULL;
+    }
+
+    int monitor_fd = dup(_LSTransportMessageGetFd(message));
+    if (monitor_fd < 0)
+    {
+        LOG_LS_ERROR(MSGID_LS_TRANSPORT_CONNECT_ERR, 0,
+                     "Failed to dup monitor fd: %d", errno);
+        return;
+    }
+
+    transport->monitor = _LSTransportConnectClient(transport, NULL, unique_name, monitor_fd, NULL, _LSClientAllowBoth, &lserror);
 
     if (!transport->monitor)
     {
@@ -2862,7 +2878,9 @@ _LSTransportHandleQueryProxyNameFailure(_LSTransportMessage *message, long err_c
     LSError lserror;
     LSErrorInit(&lserror);
 
-    if (!service_name) {
+    if (!service_name || !origin_name) {
+        /* origin_name may be missing from a malformed reply; g_strconcat
+         * starting with NULL returns NULL and would crash g_str_hash below */
         return;
     }
 
@@ -3600,20 +3618,20 @@ _LSTransportSendQuery(const _LSTransportMessage *message, _LSTransportMessageTyp
         !_LSTransportMessageAppendString(&iter, client_unique_name)  ||
         !_LSTransportMessageAppendInvalid(&iter)) {
         LOG_LS_ERROR(MSGID_LS_OOM_ERR, 0, "%s", LS_ERROR_TEXT_OOM);
-        return ret;
-    }
-
-    /* Blocking send a "QueryPid/Uid/Gid/ProcessInfo" message to the hub */
-    ret = _LSTransportSendMessageBlocking(send_message, transport->hub, true, NULL, &lserror);
-    if (!ret) {
-        LOG_LSERROR(MSGID_LS_TRANSPORT_NETWORK_ERR, &lserror);
-        LSErrorFree(&lserror);
         _LSTransportMessageUnref(send_message);
         return ret;
     }
 
-    /* send a query message to the hub */
-    _LSTransportSendMessage(send_message, transport->hub, NULL, &lserror);
+    /* Blocking send a "QueryPid/Uid/Gid/ProcessInfo" message to the hub.
+     * Do not queue the same message a second time afterwards: that made the
+     * hub process every query twice and the stray reply was dispatched to
+     * the user message handler. */
+    ret = _LSTransportSendMessageBlocking(send_message, transport->hub, true, NULL, &lserror);
+    if (!ret) {
+        LOG_LSERROR(MSGID_LS_TRANSPORT_NETWORK_ERR, &lserror);
+        LSErrorFree(&lserror);
+    }
+
     _LSTransportMessageUnref(send_message);
 
     return ret;
@@ -4828,6 +4846,14 @@ _LSTransportHandleClientInfo(_LSTransportMessage *message)
     _LSTransportClient *client = _LSTransportMessageGetClient(message);
 
     LS_ASSERT(client->service_name == NULL);
+    if (client->service_name != NULL)
+    {
+        /* a peer must not send ClientInfo twice: it would leak the old
+         * name and let the peer change its claimed identity mid-session */
+        LOG_LS_WARNING(MSGID_LS_MSG_ERR, 0,
+                       "Ignoring repeated ClientInfo message");
+        return;
+    }
 
     _LSTransportMessageIterInit(message, &iter);
 
@@ -6761,11 +6787,19 @@ bool _LSTransportInitializeTrustLevel(_LSTransport *transport, const char * prov
         return false;
     }
 
-    // Dispose old Provided groups trust level
+    // Dispose old Provided groups trust level; clear the pointers so no
+    // early return below leaves them dangling (use-after-free in
+    // LSTransportGetTrustFromMask on re-initialization)
     if(transport->provided_trust_level_map)
+    {
         g_hash_table_destroy(transport->provided_trust_level_map);
+        transport->provided_trust_level_map = NULL;
+    }
     if(transport->provided_trust_level_to_group_map)
+    {
         g_slist_free_full(transport->provided_trust_level_to_group_map, (GDestroyNotify) LSTransportTrustLevelGroupBitmaskFree);
+        transport->provided_trust_level_to_group_map = NULL;
+    }
 
    // Provided groups: Create hashmap [trustLevel: code]
     GHashTable *provided_trust_level_map = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
@@ -6788,6 +6822,7 @@ bool _LSTransportInitializeTrustLevel(_LSTransport *transport, const char * prov
                      PMLOGKS("JSON", provided_map_json),
                      "Fail to read JSON: providedGroup or providedTrustForGroup NOT PRESENT : %s\n", provided_map_json);
             g_hash_table_destroy(provided_trust_level_map);
+            j_release(&jmap);
             return true;
         }
 
@@ -6989,7 +7024,7 @@ LSTransportCategoryBitmask *LSTransportCategoryBitmaskNew(const char *pattern,
     // However, the categories are stored without the tailing '/', thus
     // we have to remove it to prepare a correct pattern.
     int len = strlen(pattern);
-    if ((v->match_category_only = pattern[len - 1] == '/'))
+    if ((v->match_category_only = (len > 0 && pattern[len - 1] == '/')))
     {
         if (len > 1 && pattern[len - 1] == '/')
             --len;
@@ -7022,7 +7057,7 @@ LSTransportTrustLevelGroupBitmask *LSTransportTrustLevelBitmaskNew(const char *p
     // However, the categories are stored without the tailing '/', thus
     // we have to remove it to prepare a correct pattern.
     int len = strlen(pattern);
-    if ((v->match_group_only = pattern[len - 1] == '/'))
+    if ((v->match_group_only = (len > 0 && pattern[len - 1] == '/')))
     {
         if (len > 1 && pattern[len - 1] == '/')
             --len;
