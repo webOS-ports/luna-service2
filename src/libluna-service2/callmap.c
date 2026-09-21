@@ -601,6 +601,9 @@ error:
     reply->category = LUNABUS_ERROR_CATEGORY;
     reply->method = LUNABUS_ERROR_OOM;
 
+    /* both pointers were freed above; leaving methodAllocated set would
+     * double-free in _LSMessageFree */
+    reply->methodAllocated = NULL;
     reply->payloadAllocated = NULL;
     reply->payload =
         "{\"returnValue\":false,\"errorCode\":-1,\"errorText\":\"OOM\"}";
@@ -701,8 +704,15 @@ _LSMessageTranslateFromCall(_Call *call, LSMessage *reply,
 
         /* FIXME -- need getter for this or make GetBody skip over the
          * reply serial */
-        /* skip over reply serial to get available value */
-        int available = *((int*)(_LSTransportMessageGetBody(msg) + sizeof(LSMessageToken)));
+        /* skip over reply serial to get available value; validate the body
+         * is big enough before reading (it comes from the peer) */
+        const char *ssr_body = _LSTransportMessageGetBody(msg);
+        int available = 0;
+        if (ssr_body &&
+            _LSTransportMessageGetBodySize(msg) >= sizeof(LSMessageToken) + sizeof(int))
+        {
+            memcpy(&available, ssr_body + sizeof(LSMessageToken), sizeof(available));
+        }
 
         /* Initialize connection status with the first reply to signal/registerServerStatus */
         call->is_connected = available;
@@ -2079,7 +2089,11 @@ ResetCallTimeout(_Call *call)
     {
         _CallAddReference(call);
         call->timer_source = g_timeout_source_new(call->timeout_ms);
-        g_source_set_callback(call->timer_source, (GSourceFunc) OnCallTimedOut, call, (GDestroyNotify) _CallRelease);
+        /* _CallReleaseUnsafe, not _CallRelease: the destroy notify runs on
+         * whatever thread destroys the source and must not unlock a call
+         * mutex that thread does not own (the reference was taken without
+         * the lock, too) */
+        g_source_set_callback(call->timer_source, (GSourceFunc) OnCallTimedOut, call, (GDestroyNotify) _CallReleaseUnsafe);
         (void)g_source_attach(call->timer_source, call->sh->context);
     }
     else

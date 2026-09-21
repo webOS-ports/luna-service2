@@ -18,6 +18,7 @@
 
 #include <vector>
 #include <memory>
+#include <string>
 
 // A naive implementation of prefix tree proved to be not only simple,
 // but also efficient. The idea is to branch on every character,

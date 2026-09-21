@@ -53,7 +53,6 @@ private:
     std::vector<std::string> _files;
 };
 void DumpTrustMap(const TrustMap &trust_level, std::string &dump);
-void DumpTrustMapToFile(std::string filename,ServiceToTrustMap &trust_level, std::string title);
 std::string extract_filename(const std::string& filepath);
 
 bool ProcessDirectory(const char *dir, void* ctx, LSError *lserror);
@@ -77,8 +76,8 @@ bool ParseOldRoleFile(const std::string &path, const std::string &prefix, uint32
 _Service* ParseServiceString(const std::string &path, const std::string &prefix, LSError *error);
 _Service* ParseServiceFile(const std::string &path, const std::string &prefix, LSError *error);
 
-bool ParseRequiresString(const std::string &data, CategoryMap &requires, LSError *lserror);
-bool ParseRequiresFile(const std::string &path, CategoryMap &requires, LSError *lserror);
+bool ParseRequiresString(const std::string &data, CategoryMap &required, LSError *lserror);
+bool ParseRequiresFile(const std::string &path, CategoryMap &required, LSError *lserror);
 
 bool ParseProvidesString(const std::string &data, CategoryMap &provides, LSError *lserror);
 bool ParseProvidesFile(const std::string &path, CategoryMap &provides, LSError *lserror);

@@ -25,7 +25,7 @@
 /// @addtogroup LunaServiceHubSecurity
 /// @{
 
-static std::string
+G_GNUC_UNUSED static std::string
 GroupsToString(const Groups& s)
 {
     std::stringstream ss;
@@ -46,7 +46,8 @@ GroupsToString(const Groups& s)
 
 static inline bool is_pattern(const char *str)
 {
-    return str[strlen(str) - 1] == '*';
+    size_t len = strlen(str);
+    return len > 0 && str[len - 1] == '*';
 }
 
 bool GroupsMap::Data::IsEmpty() const
@@ -286,7 +287,9 @@ TrustMap GroupsMap::GetProvidedTrust(const char *service_name) const
             trust_map[c.first].insert(c.second);
     };
 
-    auto leaf = _groups->Search(service_name, action);
+    /* Search() invokes `action` on matching nodes (that side effect fills
+     * trust_map); the returned leaf itself is unused */
+    (void)_groups->Search(service_name, action);
 //    if (leaf)
 //    {
 //        for (const auto &c : leaf->trust_level)
@@ -306,7 +309,9 @@ TrustMap GroupsMap::GetRequiredTrust(const char *service_name) const
             trust_map[c.first].insert(c.second);
     };
 
-    auto leaf = _groups->Search(service_name, action);
+    /* Search() invokes `action` on matching nodes (that side effect fills
+     * trust_map); the returned leaf itself is unused */
+    (void)_groups->Search(service_name, action);
 //    if (leaf)
 //    {
 //        for (const auto &c : leaf->trust_level)
@@ -339,7 +344,7 @@ std::string GroupsMap::GetRequiredTrustAsString(const char *service_name) const
          }
     };
 
-    auto leaf = _groups->Search(service_name, action);
+    (void)_groups->Search(service_name, action);
     // If trust is not available, default is "dev"
     if (trust_string.empty())
         trust_string = DEFAULT_TRUST_LEVEL;

@@ -79,6 +79,9 @@ bool LSGmainContextAttach(LSHandle *sh, GMainContext *mainContext, LSError *lser
 
     if(!sh->transport->mainloop_context)
         _LSTransportGmainAttach(sh->transport, mainContext);
+    /* don't leak the previous context reference on re-attach */
+    if (sh->context)
+        g_main_context_unref(sh->context);
     sh->context = g_main_context_ref(mainContext);
 
     return true;

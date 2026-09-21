@@ -230,8 +230,10 @@ _FreeMonitorListInfoItem(_LSMonitorListInfo *info)
 static void
 _FreeMonitorListInfo(GSList **list)
 {
-    for (; *list != NULL; *list = g_slist_next(*list))
+    while (*list != NULL)
     {
+        /* g_slist_delete_link already advances to the next node; the old
+         * for-loop increment skipped (and leaked) every second entry */
         _LSMonitorListInfo *info = static_cast<_LSMonitorListInfo *>((*list)->data);
         if (info) _FreeMonitorListInfoItem(info);
         *list = g_slist_delete_link(*list, *list);

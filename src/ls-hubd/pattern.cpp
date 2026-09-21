@@ -18,6 +18,13 @@
 
 #include "error.h"
 
+/* glib 2.70 renamed the pattern-match functions */
+#if GLIB_CHECK_VERSION(2, 70, 0)
+#define ls_pattern_match(spec, len, str, rev) g_pattern_spec_match((spec), (len), (str), (rev))
+#else
+#define ls_pattern_match(spec, len, str, rev) g_pattern_match((spec), (len), (str), (rev))
+#endif
+
 /**
  * @cond INTERNAL
  * @addtogroup LunaServiceHub
@@ -113,8 +120,8 @@ int _LSHubPatternSpecCompare(_LSHubPatternSpec const *pa, _LSHubPatternSpec cons
         return 0;
 
     /* For lookup, it only matters if the key is matched against the pattern. */
-    if ( (pa->pattern_spec && g_pattern_match(pa->pattern_spec, strlen(pb->pattern_str), pb->pattern_str, NULL)) ||
-         (pb->pattern_spec && g_pattern_match(pb->pattern_spec, strlen(pa->pattern_str), pa->pattern_str, NULL)) )
+    if ( (pa->pattern_spec && ls_pattern_match(pa->pattern_spec, strlen(pb->pattern_str), pb->pattern_str, NULL)) ||
+         (pb->pattern_spec && ls_pattern_match(pb->pattern_spec, strlen(pa->pattern_str), pa->pattern_str, NULL)) )
     {
         return 0;
     }

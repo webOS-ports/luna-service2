@@ -116,7 +116,7 @@ public:
     Permissions perms;
     Services services;
     Groups groups;
-    CategoryMap requires;
+    CategoryMap requires_;
     CategoryMap provides;
     ServiceToTrustMap trust_level_provided;
     ServiceToTrustMap trust_level_required;

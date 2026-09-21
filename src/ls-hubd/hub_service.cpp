@@ -129,10 +129,15 @@ std::string HubService::IsCallAllowed(_LSTransportMessage *message, const char *
 
     LS::Error error;
     auto lsuri = mk_ptr(LSUriParse(object["uri"].asString().c_str(), error.get()), LSUriFree);
-    assert(lsuri);
     if (error.isSet())
     {
         return make_error(error->error_code, error->message);
+    }
+    if (!lsuri)
+    {
+        /* don't abort (dev builds) or NULL-deref (release builds) on an
+         * unparsable client-supplied URI */
+        return make_error(-1, "Invalid URI");
     }
 
     bool allowed = LSHubIsCallAllowed(object["requester"].asString().c_str(),
@@ -325,6 +330,12 @@ std::string HubService::GetServiceApiVersions(_LSTransportMessage *message, cons
     {
         auto permission = SecurityData::CurrentSecurityData().permissions.LookupServicePermissions(name.asString().c_str());
 
+        /* a permission entry can have an empty permissions list (e.g. a
+         * wildcard trie node after removal); treat it as not found instead
+         * of dereferencing a NULL list head below */
+        if (permission && !permission->permissions)
+            permission = nullptr;
+
         std::string destination_service_name;
 
         if (permission)
@@ -337,6 +348,8 @@ std::string HubService::GetServiceApiVersions(_LSTransportMessage *message, cons
                  for (const auto& servicename : GetServiceRedirectionVariants(name.asString().c_str()))
                  {
                      permission = SecurityData::CurrentSecurityData().permissions.LookupServicePermissions(servicename.c_str());
+                     if (permission && !permission->permissions)
+                         permission = nullptr;
                      if (permission)
                      {
                          LSHubPermission *p = static_cast<LSHubPermission *>(permission->permissions->data);
@@ -396,7 +409,14 @@ void HubService::HandleMethodCall(_LSTransportMessage *message)
     _LSTransportMessageIterNext(&iter);
     _LSTransportMessageGetString(&iter, &payload);
 
-    assert(method && payload);
+    if (!method || !payload)
+    {
+        /* malformed client message; assert would abort dev builds and
+         * fall through to NULL derefs in release builds */
+        LOG_LS_ERROR(MSGID_LSHUB_CLIENT_ERROR, 0,
+                     "Hub method call without method or payload");
+        return;
+    }
 
     std::string reply;
 
@@ -473,7 +493,7 @@ std::string HubService::QueryServicePermissions(_LSTransportMessage *message, co
         LSHubActivePermissionMapLookup(service_name.c_str());
     if (active_perm)
     {
-        return RespondServicePermissions(active_perm->provides, active_perm->requires);
+        return RespondServicePermissions(active_perm->provides, active_perm->requires_);
     }
 
     // Query permissions from the security data

@@ -52,14 +52,9 @@ extern "C" {
 
 typedef char _char8_t;
 
-inline const _char8_t* getBaseFileName_() {
-    const _char8_t *pch = strrchr("/" __FILE__, '/');
-    return (NULL != pch) ? (pch + 1) : __FILE__;
-}
-
-#define LS__FILE__BASENAME() ({\
-    getBaseFileName_(); \
-})
+/* Must be a macro: __FILE__ has to be evaluated at the call site, or every
+ * diagnostic reports this header as the source file. */
+#define LS__FILE__BASENAME() (strrchr("/" __FILE__, '/') + 1)
 
 
 /*

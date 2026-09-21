@@ -61,7 +61,9 @@ public:
 
     void erase(const char *group)
     {
-        Base::erase(std::find(begin(), end(), group));
+        auto it = std::find(begin(), end(), group);
+        if (it != end())  // erasing end() is undefined behavior
+            Base::erase(it);
     }
 
     bool operator== (const Groups& other) const
@@ -94,7 +96,9 @@ public:
 
     void erase(const char *trust_level)
     {
-        Base::erase(std::find(begin(), end(), trust_level));
+        auto it = std::find(begin(), end(), trust_level);
+        if (it != end())  // erasing end() is undefined behavior
+            Base::erase(it);
     }
 
     bool operator== (const TrustLevel& other) const
@@ -124,7 +128,7 @@ struct LSHubPermission {
     const char *exe_path;         //< Executable full path for authentication
     _LSHubPatternQueue *inbound;  //< List of allowed inbound service patterns
     _LSHubPatternQueue *outbound; //< List of allowed outbound service patterns
-    Groups requires;              //< Set of required access control groups (ACG)
+    Groups requires_;             //< Set of required access control groups (ACG); named requires_ because requires is a C++20 keyword
     CategoryMap provides;         //< Map of category patterns to their provided ACG
     uint32_t perm_flags;          //< Flag of permission origin (new vs legacy, private vs public)
     pbnjson::JValue version;      //< Service API version
@@ -198,7 +202,7 @@ LSHubPermissionGetFlags(const LSHubPermission *perm)
 static inline const Groups&
 LSHubPermissionGetRequired(const LSHubPermission *perm)
 {
-    return perm->requires;
+    return perm->requires_;
 }
 
 static inline const std::string
@@ -244,9 +248,9 @@ LSHubPermissionGetAPIVersion(LSHubPermission *perm)
 }
 
 static inline void
-LSHubPermissionSetRequired(LSHubPermission *perm, const Groups& requires)
+LSHubPermissionSetRequired(LSHubPermission *perm, const Groups& required)
 {
-    perm->requires = requires;
+    perm->requires_ = required;
 }
 
 static inline void

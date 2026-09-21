@@ -867,6 +867,9 @@ LSHubIsClientAllowedToSendSignal(_LSTransportClient *client, const char *categor
 {
     LS_ASSERT(client != NULL);
 
+    if (!category || !method)
+        return false;
+
     if (!g_conf_security_enabled)
     {
         return true;
@@ -895,6 +898,9 @@ LSHubIsClientAllowedToSendSignal(_LSTransportClient *client, const char *categor
 bool LSHubIsClientAllowedToSubscribeSignal(_LSTransportClient *client, const char *category, const char *method)
 {
     LS_ASSERT(client != NULL);
+
+    if (!category || !method)
+        return false;
 
     if (!g_conf_security_enabled)
     {
@@ -1469,7 +1475,7 @@ void SecurityData::LoadManifestData(ManifestData &&data)
         services.Add(std::move(service));
     }
 
-    for (const auto &item : data.requires)
+    for (const auto &item : data.requires_)
     {
         const std::string &name = item.first;
         for (const auto &group : item.second)
@@ -1546,7 +1552,7 @@ void SecurityData::UnloadManifestData(ManifestData &&data)
         services.Remove((const char**)service->service_names, service->num_services);
     }
 
-    for (const auto &item : data.requires)
+    for (const auto &item : data.requires_)
     {
         const std::string& name = item.first;
         for (const auto &group : item.second)

@@ -53,18 +53,9 @@
 #include "service.hpp"
 #include "hub_service.hpp"
 
-#include <fstream>
 #include <iostream>
 #include <systemd/sd-daemon.h>
 #include <utility>
-
-template <typename Arg, typename... Args>
-void DumpToFile(std::ostream& out, Arg&& arg, Args&&... args)
-{
-    out << std::forward<Arg>(arg);
-    using expander = int[];
-    (void)expander{0, (void(out << std::endl << std::endl << std::forward<Args>(args)), 0)...};
-}
 
 #ifdef SECURITY_HACKS_ENABLED
 #include "security_hacks.h"
@@ -956,19 +947,6 @@ _LSHubSendRequestNameReply(_LSTransportClient *client, const char *unique_name, 
         return;
     }
 
-    if((strstr(trust_provided_str.c_str(), "[]") == NULL) &&
-        (strstr(trust_required_str.c_str(), "[]") == NULL))
-    {
-        std::ofstream file;
-        std::string name = "/tmp/" + std::string("hub_LSHubSendRequestNameReply" + service_name);
-        file.open(name);
-        if(file.is_open())
-        {
-           DumpToFile(file, trust_provided_str, trust_required_str, trust_as_string);
-           file.close();
-        }
-    }
-
     LOG_LS_DEBUG("%s : trust_provided_str.c_str() [ %s ]", __func__, trust_provided_str.c_str());
     LS::Error lserror;
     if (!_LSTransportSendMessage(reply.get(), client, nullptr, lserror.get()))
@@ -1072,10 +1050,32 @@ _LSHubHandleRequestName(_LSTransportMessage *message)
         return false;
     }
 
+    /* reject a client that already requested a name: a second RequestName
+     * would orphan the first _ClientId in the pending/by_unique_name maps
+     * and let the client change its identity mid-session */
+    if (_LSTransportClientGetUniqueName(client))
+    {
+        LOG_LS_ERROR(MSGID_LSHUB_CLIENT_ERROR, 0,
+                     "Client \"%s\" sent RequestName twice",
+                     _LSTransportClientGetUniqueName(client));
+        _LSHubSendRequestNameError(client, LS_TRANSPORT_REQUEST_NAME_PERMISSION_DENIED);
+        return false;
+    }
+
     /* get service name */
     const char *service_name = nullptr;
     _LSTransportMessageIterNext(&iter);
     _LSTransportMessageGetString(&iter, &service_name);
+
+    /* service names are used in maps, redirection matching and file paths
+     * derived from roles: reject embedded path separators and wildcards */
+    if (service_name && strpbrk(service_name, "/\\*?"))
+    {
+        LOG_LS_ERROR(MSGID_LSHUB_CLIENT_ERROR, 0,
+                     "Rejecting service name with invalid characters");
+        _LSHubSendRequestNameError(client, LS_TRANSPORT_REQUEST_NAME_PERMISSION_DENIED);
+        return false;
+    }
 
     /* get application id */
     const char *app_id = nullptr;
@@ -1177,35 +1177,15 @@ _LSHubHandleRequestName(_LSTransportMessage *message)
 }
 
 static std::string
-_LSHubGetRequiredTrustsByName(const char *origin_exe, const char *origin_id, const char *origin_name) {
-
-    const LSHubRole *role = nullptr;
-    if (origin_id) {
-        // look-up in all roles by app-id
-        role = SecurityData::CurrentSecurityData().roles.Lookup(origin_id);
-    } else if (origin_exe) {
-        role = SecurityData::CurrentSecurityData().roles.Lookup(origin_exe);
-    }
-
-    bool is_devmode = !role || LSHubRoleGetType(role) == LSHubRoleTypeDevmode;
-    pbnjson::JValue jval = pbnjson::Array();
-    std::string trust;
-
-    {
-        GroupsMap &groups = SecurityData::CurrentSecurityData().groups;
-        trust = groups.GetRequiredTrustAsString(origin_name);
-        LOG_LS_DEBUG("[%s] trust: %s \n", __func__, trust.c_str());
-        {
-            jval << pbnjson::JValue(trust);
-        }
-    }
-
-    std::string jval_str = pbnjson::JGenerator::serialize(jval, true);
-    if (!g_conf_security_enabled) {
-        // If security is disabled, all the API belong to the same group "TOTUM" (lat. everything),
-        // and every service `requires' that group to function.
-        jval_str = R"(["TOTUM"])";
-    }
+_LSHubGetRequiredTrustsByName(const char * /*origin_exe*/, const char * /*origin_id*/, const char *origin_name) {
+    // NOTE: unlike the required-groups path, the trust level is returned
+    // unfiltered - upstream computed a devmode flag and a JSON array here
+    // but never used either, so that dead code has been removed. If trust
+    // levels ever need the devmode restriction, mirror
+    // _LSHubGetRequiredGroupsByName.
+    GroupsMap &groups = SecurityData::CurrentSecurityData().groups;
+    std::string trust = groups.GetRequiredTrustAsString(origin_name);
+    LOG_LS_DEBUG("[%s] trust: %s \n", __func__, trust.c_str());
     return trust;
 }
 
@@ -1232,20 +1212,9 @@ _LSHubGetRequiredTrusts(const _LSTransportClient *client)
         return "";
     }
 
-    // Ensure restricted in devmode agents (like luna-send-pub) can't call private API.
-    const LSHubRole *role = nullptr;
-    if (client->app_id)
-    {
-        // look-up in all roles by app-id
-        role = SecurityData::CurrentSecurityData().roles.Lookup(client->app_id);
-    }
-    else
-    {
-        role = LSHubActiveRoleMapLookup(_LSTransportCredGetPid(_LSTransportClientGetCred(client)));
-    }
-
-    bool is_devmode = !role || LSHubRoleGetType(role) == LSHubRoleTypeDevmode;
-    pbnjson::JValue jval = pbnjson::Array();
+    // NOTE: the trust level is returned unfiltered (see
+    // _LSHubGetRequiredTrustsByName) - the devmode flag and JSON array the
+    // upstream code computed here were never used.
     std::string trust;
 
 #ifdef SECURITY_HACKS_ENABLED
@@ -1253,24 +1222,13 @@ _LSHubGetRequiredTrusts(const _LSTransportClient *client)
     {
 #endif
     // Client will be having only 1 trust level
-    //for (const auto& trust : LSHubPermissionGetRequiredTrust(active_perm))
     {
        trust = LSHubPermissionGetRequiredTrustAsString(active_perm);
        LOG_LS_DEBUG("[%s] trust: %s \n", __func__, trust.c_str());
-       {
-           jval << pbnjson::JValue(trust);
-       }
     }
 #ifdef SECURITY_HACKS_ENABLED
     }
 #endif
-    std::string jval_str = pbnjson::JGenerator::serialize(jval, true);
-    if (!g_conf_security_enabled)
-    {
-        // If security is disabled, all the API belong to the same group "TOTUM" (lat. everything),
-        // and every service `requires' that group to function.
-        jval_str = R"(["TOTUM"])";
-    }
     return trust;
 }
 
@@ -1368,15 +1326,6 @@ _LSHubGetRequiredGroups(const _LSTransportClient *client)
     }
 
     return jval_str;
-}
-
-static std::string
-_LSHubGetRequiredTrustLevelAsString(const _LSTransportClient *client)
-{
-    std::string retVal = _LSTransportClientGetTrustString(client);
-    std::string serviceName = _LSTransportClientGetServiceName(client);
-    std::string appId = _LSTransportClientGetApplicationId(client);
-    return retVal;
 }
 
 static bool
@@ -2601,6 +2550,14 @@ _LSHubHandleQueryName(_LSTransportMessage *message)
 
     const char *requested_service_name = _LSTransportMessageTypeQueryNameGetQueryName(message);
     LS_ASSERT(requested_service_name != NULL);
+    if (!requested_service_name)
+    {
+        /* malformed query from an untrusted peer; LS_ASSERT is a no-op in
+         * release builds and std::string(NULL) below would crash the hub */
+        LOG_LS_ERROR(MSGID_LSHUB_CLIENT_ERROR, 0,
+                     "QueryName message without a service name");
+        return;
+    }
 
     /* If the message originated from a application service, we will get a non-NULL appId
      * from this call. */
@@ -2916,6 +2873,12 @@ _LSHubHandleSignalUnregister(_LSTransportMessage *message)
     LOG_LS_DEBUG("%s: category: \"%s\", method: \"%s\", client: %p\n", __func__, category, method, client);
 
     LS_ASSERT(category != NULL);
+    if (!category || !method)
+    {
+        LOG_LS_ERROR(MSGID_LSHUB_CLIENT_ERROR, 0,
+                     "SignalUnregister without category/method");
+        return;
+    }
 
     /* if method, remove from category/method hash */
     if (method[0] != '\0')
@@ -3078,6 +3041,15 @@ _LSHubHandleSignalRegister(_LSTransportMessage* message)
     LOG_LS_DEBUG("%s: category: \"%s\", method: \"%s\", client: %p\n", __func__, category, method, client);
 
     LS_ASSERT(category != NULL);
+    /* category/method come from a peer message and can be NULL for a
+     * malformed SignalRegister; LS_ASSERT is a no-op in release builds and
+     * the code below (and the permission check) dereference both */
+    if (!category || !method)
+    {
+        LOG_LS_ERROR(MSGID_LSHUB_CLIENT_ERROR, 0,
+                     "SignalRegister without category/method");
+        return;
+    }
 
     if (!LSHubIsClientAllowedToSubscribeSignal(client, category, method))
     {
@@ -3149,6 +3121,13 @@ _LSHubHandleSignal(_LSTransportMessage *message, bool generated_by_hub)
 
     LS_ASSERT(category != NULL);
     LS_ASSERT(method != NULL);
+    /* a peer-sent signal can carry a malformed body: don't crash on NULL */
+    if (!category || !method)
+    {
+        LOG_LS_ERROR(MSGID_LSHUB_CLIENT_ERROR, 0,
+                     "Signal without category/method");
+        return;
+    }
 
     if (!generated_by_hub && !LSHubIsClientAllowedToSendSignal(_LSTransportMessageGetClient(message),
                                                                category, method))
@@ -3382,7 +3361,6 @@ GetCredentialInfo(_LSTransportMessage *message)
     _LSTransportMessageIter iter;
     const char *service_name = nullptr;
     const char *unique_name = nullptr;
-    const _LSTransportCred* cred = nullptr;
     _ClientId* client_id = nullptr;
 
     // get the service name and unique name from transport message
@@ -3612,6 +3590,14 @@ _LSHubHandleQueryServiceStatus(const _LSTransportMessage *message)
     _LSTransportMessageIterInit((_LSTransportMessage*)message, &iter);
     _LSTransportMessageGetString(&iter, &service_name);
 
+    if (!service_name)
+    {
+        /* malformed message: g_str_hash(NULL) would crash the hub */
+        LOG_LS_ERROR(MSGID_LSHUB_CLIENT_ERROR, 0,
+                     "QueryServiceStatus message without a service name");
+        return;
+    }
+
     available = g_hash_table_lookup(available_services, service_name) ? 1 : 0;
     if (available == 0)
     {
@@ -3761,6 +3747,15 @@ _LSHubHandleQueryServiceCategory(const _LSTransportMessage *message)
     _LSTransportMessageIterNext(&iter);
     _LSTransportMessageGetString(&iter, &category);
     _LSTransportMessageIterNext(&iter);
+
+    if (!service_name)
+    {
+        /* malformed message: g_str_hash(NULL) would crash the hub */
+        LOG_LS_ERROR(MSGID_LSHUB_CLIENT_ERROR, 0,
+                     "QueryServiceCategory message without a service name");
+        send_service_category_reply(message, "{}");
+        return;
+    }
 
     /* look up service name in available list */
     _ClientId *id = static_cast<_ClientId *>(g_hash_table_lookup(available_services, service_name));
@@ -4044,6 +4039,15 @@ _LSHubAppendCategory(const char *service_name, const char *category,
 {
     _ClientId *id = static_cast<_ClientId *>(g_hash_table_lookup(available_services, service_name));
     LS_ASSERT(id);
+    if (!id)
+    {
+        /* client sent AppendCategory before completing registration
+         * (NodeUp); don't crash the hub on it */
+        LOG_LS_ERROR(MSGID_LSHUB_CLIENT_ERROR, 0,
+                     "AppendCategory for unavailable service");
+        g_slist_free_full(methods, g_free);
+        return;
+    }
 
     // TODO: Is locking required?
     if (!id->categories)
@@ -4106,6 +4110,14 @@ _LSHubHandleAppendCategory(_LSTransportMessage *message)
     LS_ASSERT(_LSTransportMessageGetType(message) == _LSTransportMessageTypeAppendCategory);
 
     const char *service_name = _LSTransportClientGetServiceName(_LSTransportMessageGetClient(message));
+    if (!service_name)
+    {
+        /* anonymous clients have no registered categories; a NULL name
+         * would crash g_str_hash in the category map lookup */
+        LOG_LS_ERROR(MSGID_LSHUB_CLIENT_ERROR, 0,
+                     "AppendCategory from a client without a service name");
+        return;
+    }
 
     _LSTransportMessageIter iter;
     _LSTransportMessageIterInit(message, &iter);
@@ -4114,6 +4126,12 @@ _LSHubHandleAppendCategory(_LSTransportMessage *message)
     const char *category = NULL;
     _LSTransportMessageGetString(&iter, &category);
     LS_ASSERT(category);
+    if (!category)
+    {
+        LOG_LS_ERROR(MSGID_LSHUB_CLIENT_ERROR, 0,
+                     "AppendCategory without a category string");
+        return;
+    }
     _LSTransportMessageIterNext(&iter);
 
     GSList *method_list = NULL;
@@ -4122,6 +4140,8 @@ _LSHubHandleAppendCategory(_LSTransportMessage *message)
         const char *method_name = NULL;
         _LSTransportMessageGetString(&iter, &method_name);
         LS_ASSERT(method_name);
+        if (!method_name)
+            continue;
         method_list = g_slist_prepend(method_list, g_strdup(method_name));
     }
 
