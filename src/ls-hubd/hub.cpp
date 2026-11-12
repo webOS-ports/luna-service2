@@ -1645,8 +1645,8 @@ _LSHubSendQueryNameReply(_ClientId *id, const _LSTransportMessage *message, long
 #endif
             allow_reverse_calls = client_name && !is_redirected &&
                                   (is_trusted_pair ||
-                                   (LSHubIsClientAllowedOutbound(id->client, client_name) &&
-                                    LSHubIsClientAllowedInbound(id->client, client, client_name)));
+                                   (LSHubIsClientAllowedOutbound(id->client, client_name, false) &&
+                                    LSHubIsClientAllowedInbound(id->client, client, client_name, false)));
 
             if (!_LSHubSendQueryNameReplyMessage(id->client, client,
                                   message->raw->header.is_public_bus,

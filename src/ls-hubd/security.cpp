@@ -679,7 +679,7 @@ LSHubIsAllowedOutboundProxy(const char *origin_exe, const char *origin_id,
 
 bool
 LSHubIsClientAllowedOutbound(_LSTransportClient *sender_client,
-                              const char *dest_service_name)
+                              const char *dest_service_name, bool log_denial)
 {
     LS_ASSERT(sender_client != NULL);
     LS_ASSERT(dest_service_name != NULL);
@@ -696,7 +696,7 @@ LSHubIsClientAllowedOutbound(_LSTransportClient *sender_client,
     {
         return true;
     }
-    else
+    else if (log_denial)
     {
         _LSHubPrintPermissionsMessage(sender_client, sender_service_name, dest_service_name,
                                       false, g_conf_security_enabled);
@@ -747,7 +747,7 @@ LSHubIsAllowedInboundProxy(const char *origin_exe, const char *origin_id,
 
 bool
 LSHubIsClientAllowedInbound(const _LSTransportClient *sender_client, const _LSTransportClient *dest_client,
-                             const char *dest_service_name)
+                             const char *dest_service_name, bool log_denial)
 {
     LS_ASSERT(sender_client != NULL);
     LS_ASSERT(dest_service_name != NULL);
@@ -772,8 +772,9 @@ LSHubIsClientAllowedInbound(const _LSTransportClient *sender_client, const _LSTr
         /* If we have no entries with given service name, return false */
         if (!perms)
         {
-            _LSHubPrintPermissionsMessage(sender_client, sender_service_name, dest_service_name,
-                                          true, g_conf_security_enabled);
+            if (log_denial)
+                _LSHubPrintPermissionsMessage(sender_client, sender_service_name, dest_service_name,
+                                              true, g_conf_security_enabled);
             return !g_conf_security_enabled;
         }
         /* Else if we have single entry for the service name, we could check this entry */
@@ -791,8 +792,9 @@ LSHubIsClientAllowedInbound(const _LSTransportClient *sender_client, const _LSTr
         if (!_LSHubPatternQueueIsEmpty(perm->inbound)
             && !_LSHubSecurityPatternQueueAllowServiceName(perm->inbound, sender_service_name))
         {
-            _LSHubPrintPermissionsMessage(sender_client, sender_service_name, dest_service_name,
-                                          true, g_conf_security_enabled);
+            if (log_denial)
+                _LSHubPrintPermissionsMessage(sender_client, sender_service_name, dest_service_name,
+                                              true, g_conf_security_enabled);
             return !g_conf_security_enabled;
         }
     }
