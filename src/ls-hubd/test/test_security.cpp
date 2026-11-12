@@ -21,6 +21,7 @@
 
 #include <glib.h>
 #include <pbnjson.hpp>
+#include <PmLogLib.h>
 
 #include "test_util.hpp"
 #include "test_security_util.hpp"
@@ -37,6 +38,22 @@
 
 void ConfigSetDefaults(void);
 void _ConfigFreeSettings(void);
+
+/* Every message the hub logs goes through _PmLogMsgKV; this one, in the test
+ * executable, takes the place of PmLogLib's and counts the permission
+ * denials instead of printing them. */
+static int g_outbound_denials_logged = 0;
+static int g_inbound_denials_logged = 0;
+
+PmLogErr _PmLogMsgKV(PmLogContext, PmLogLevel, unsigned int, const char *msgid, size_t,
+                     const char *, const char *, const char *, ...)
+{
+    if (msgid && g_strcmp0(msgid, "LSHUB_NO_OUT_PERMS") == 0)
+        g_outbound_denials_logged++;
+    if (msgid && g_strcmp0(msgid, "LSHUB_NO_INB_PERMS") == 0)
+        g_inbound_denials_logged++;
+    return kPmLogErr_None;
+}
 
 typedef struct TestData {
 } TestData;
@@ -141,6 +158,87 @@ test_LSHubPermissionMapLookupOldFormat(TestData *fixture, gconstpointer user_dat
     _LSTransportCredSetExePath(dest_cred, "/bin/server");
     dest_client.service_name = const_cast<char*>("com.webos.server");
     g_assert(!LSHubIsClientAllowedToQueryName(&sender_client, &dest_client, "com.webos.server"));
+
+    _LSTransportDeinit(sender_transport);
+    _LSTransportCredFree(sender_cred);
+    _LSTransportDeinit(dest_transport);
+    _LSTransportCredFree(dest_cred);
+    _ConfigFreeSettings();
+}
+
+/* When a client connects to a service, the hub also asks whether the service
+ * may call the client back, only to decide what the connection allows. A "no"
+ * there is not an error and must not be logged; the same check made for a
+ * real call is still logged, and the answer is the same either way. */
+static void
+test_LSHubReverseCallProbeIsQuiet(TestData *fixture, gconstpointer user_data)
+{
+    ConfigSetDefaults();
+
+    SecurityData sdata;
+    FileCollector collector;
+    ProcessDirectory(steady_roles_old.c_str(), &collector, nullptr);
+
+    pbnjson::JArray files;
+    for (const auto& f : collector.Files()) files << f;
+
+    pbnjson::JObject manifest;
+    manifest.put("roleFilesPub", files);
+
+    ManifestData data;
+    ManifestData::ProcessManifest(manifest, std::string(), data, nullptr);
+    sdata.LoadManifestData(std::move(data));
+    SecurityData::CurrentSecurityData() = std::move(sdata);
+
+    struct LSTransportHandlers test_handlers = {};
+
+    _LSTransportCred *sender_cred = _LSTransportCredNew();
+    g_assert(sender_cred);
+    _LSTransport *sender_transport = NULL;
+    g_assert(_LSTransportInit(&sender_transport, "com.webos.client", nullptr, &test_handlers, NULL));
+    _LSTransportClient sender_client = {};
+    sender_client.cred = sender_cred;
+    sender_client.transport = sender_transport;
+
+    _LSTransportCred *dest_cred = _LSTransportCredNew();
+    g_assert(dest_cred);
+    _LSTransport *dest_transport = NULL;
+    g_assert(_LSTransportInit(&dest_transport, "com.webos.server", nullptr, &test_handlers, NULL));
+    _LSTransportClient dest_client = {};
+    dest_client.service_name = const_cast<char*>("com.webos.server");
+    dest_client.cred = dest_cred;
+    dest_client.transport = dest_transport;
+    _LSTransportCredSetExePath(dest_cred, "/bin/server");
+
+    /* com.webos.client may only call com.webos.server. */
+    _LSTransportCredSetExePath(sender_cred, "/bin/client");
+    sender_client.service_name = const_cast<char*>("com.webos.client");
+
+    g_outbound_denials_logged = 0;
+    g_assert(LSHubIsClientAllowedOutbound(&sender_client, "com.webos.server"));
+    g_assert(LSHubIsClientAllowedOutbound(&sender_client, "com.webos.server", false));
+    g_assert_cmpint(g_outbound_denials_logged, ==, 0);
+
+    g_assert(!LSHubIsClientAllowedOutbound(&sender_client, "com.webos.bar"));
+    g_assert_cmpint(g_outbound_denials_logged, ==, 1);
+    g_assert(!LSHubIsClientAllowedOutbound(&sender_client, "com.webos.bar", false));
+    g_assert_cmpint(g_outbound_denials_logged, ==, 1);
+
+    /* com.webos.server only takes calls from com.webos.client. */
+    _LSTransportCredSetExePath(sender_cred, "/bin/foo");
+    sender_client.service_name = const_cast<char*>("com.webos.foo");
+
+    g_inbound_denials_logged = 0;
+    g_assert(!LSHubIsClientAllowedInbound(&sender_client, &dest_client, "com.webos.server"));
+    g_assert_cmpint(g_inbound_denials_logged, ==, 1);
+    g_assert(!LSHubIsClientAllowedInbound(&sender_client, &dest_client, "com.webos.server", false));
+    g_assert_cmpint(g_inbound_denials_logged, ==, 1);
+
+    /* A service nobody has a role for. */
+    g_assert(!LSHubIsClientAllowedInbound(&sender_client, nullptr, "com.webos.nobody"));
+    g_assert_cmpint(g_inbound_denials_logged, ==, 2);
+    g_assert(!LSHubIsClientAllowedInbound(&sender_client, nullptr, "com.webos.nobody", false));
+    g_assert_cmpint(g_inbound_denials_logged, ==, 2);
 
     _LSTransportDeinit(sender_transport);
     _LSTransportCredFree(sender_cred);
@@ -294,6 +392,7 @@ main(int argc, char *argv[])
     g_log_set_fatal_mask ("LunaServiceHub", G_LOG_LEVEL_ERROR);
 
     g_test_add("/hub/LSHubPermissionMapLookupOldFormat", TestData, NULL, NULL, test_LSHubPermissionMapLookupOldFormat, NULL);
+    g_test_add("/hub/LSHubReverseCallProbeIsQuiet", TestData, NULL, NULL, test_LSHubReverseCallProbeIsQuiet, NULL);
     g_test_add("/hub/LSHubPermissionIsEqual", TestData, NULL, NULL, test_LSHubPermissionIsEqual, NULL);
     g_test_add("/hub/LSHubPermissionMerging", TestData, NULL, NULL, test_LSHubPermissionMerging, NULL);
     g_test_add("/hub/LSHubActivePermissionMap", TestData, NULL, NULL, test_LSHubActivePermissionMap, NULL);

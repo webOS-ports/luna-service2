@@ -128,9 +128,10 @@ bool LSHubIsClientAllowedToSubscribeSignal(_LSTransportClient *client, const cha
 bool LSHubIsCallAllowed(const char *service, const char *dest_service,
                         const char *category, const char *method);
 bool LSHubIsClientMonitor(const _LSTransportClient *client);
-bool LSHubIsClientAllowedOutbound(_LSTransportClient *sender_client, const char *dest_service_name);
+bool LSHubIsClientAllowedOutbound(_LSTransportClient *sender_client, const char *dest_service_name,
+                                  bool log_denial = true);
 bool LSHubIsClientAllowedInbound(const _LSTransportClient *sender_client, const _LSTransportClient *dest_client,
-                                  const char *dest_service_name);
+                                  const char *dest_service_name, bool log_denial = true);
 bool
 LSHubIsAllowedToQueryProxyName(const char *origin_exe, const char *origin_id,
                                const char *origin_name, _LSTransportClient *origin_client,
